@@ -20,3 +20,4 @@ tmp/
 .idea/
 
 build/
+cmake-build-*/

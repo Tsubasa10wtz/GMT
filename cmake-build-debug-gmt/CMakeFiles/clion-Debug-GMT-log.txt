@@ -1,8 +1,0 @@
-/usr/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DCMAKE_C_COMPILER=/usr/bin/gcc-9 -DCMAKE_CXX_COMPILER=/usr/bin/g++-9 -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.4/bin/nvcc "  " -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda-12.4 "  " -DCMAKE_CUDA_FLAGS=--include-path=/usr/local/cuda-12.4/include -G "CodeBlocks - Unix Makefiles" -S /home/tzwang/GMT-main -B /home/tzwang/GMT-main/cmake-build-debug-gmt
--- Using NVIDIA driver found in /usr/src/nvidia-550.54.14
--- Not building FIO
--- Configuring libnvm without SmartIO
--- Configuring kernel module without CUDA
--- Configuring done
--- Generating done
--- Build files have been written to: /home/tzwang/GMT-main/cmake-build-debug-gmt
