@@ -1637,6 +1637,9 @@ int main(int argc, char *argv[]) {
         }
 
 
+        std::cout << "No need for Controller " << std::endl;
+        fflush(stdout);
+
         std::vector<Controller*> ctrls(settings.n_ctrls);
         if(mem == BAFS_DIRECT){
             cuda_err_chk(cudaSetDevice(settings.cudaDevice));

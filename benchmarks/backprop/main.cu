@@ -186,25 +186,25 @@ HostCache* hc;
 unsigned int num_threads = 0;
 uint64_t num_blocks = 0;
 
-void flush_for_hc(BPNN* bpnn)
-{
-    for (int i = 0; i < NUM_INPUTS; i++)
-        h_pc->fetch_and_flush(bpnn->h_range_input_units[i]);              // input_cuda
-    h_pc->fetch_and_flush(bpnn->h_range_input_weights);
-    h_pc->fetch_and_flush(bpnn->h_range_output_hidden_units);      // hidden units
-    h_pc->fetch_and_flush(bpnn->h_range_hidden_partial_sum);
-    h_pc->fetch_and_flush(bpnn->h_range_input_prev_weights);
-    h_pc->fetch_and_flush(bpnn->h_range_hidden_prev_weights);      // hidden prev weights
-    h_pc->fetch_and_flush(bpnn->h_range_buffer[0]);
-    h_pc->fetch_and_flush(bpnn->h_range_buffer[1]);
-    h_pc->fetch_and_flush(bpnn->h_range_output_units);
-    h_pc->fetch_and_flush(bpnn->h_range_hidden_weights);           // hidden weights
-    h_pc->fetch_and_flush(bpnn->h_range_output_delta);            // output delta
-    h_pc->fetch_and_flush(bpnn->h_range_target);                  // target
-    h_pc->fetch_and_flush(bpnn->h_range_hidden_delta);           // hidden delta
-    
-
-}
+// void flush_for_hc(BPNN* bpnn)
+// {
+//     for (int i = 0; i < NUM_INPUTS; i++)
+//         h_pc->fetch_and_flush(bpnn->h_range_input_units[i]);              // input_cuda
+//     h_pc->fetch_and_flush(bpnn->h_range_input_weights);
+//     h_pc->fetch_and_flush(bpnn->h_range_output_hidden_units);      // hidden units
+//     h_pc->fetch_and_flush(bpnn->h_range_hidden_partial_sum);
+//     h_pc->fetch_and_flush(bpnn->h_range_input_prev_weights);
+//     h_pc->fetch_and_flush(bpnn->h_range_hidden_prev_weights);      // hidden prev weights
+//     h_pc->fetch_and_flush(bpnn->h_range_buffer[0]);
+//     h_pc->fetch_and_flush(bpnn->h_range_buffer[1]);
+//     h_pc->fetch_and_flush(bpnn->h_range_output_units);
+//     h_pc->fetch_and_flush(bpnn->h_range_hidden_weights);           // hidden weights
+//     h_pc->fetch_and_flush(bpnn->h_range_output_delta);            // output delta
+//     h_pc->fetch_and_flush(bpnn->h_range_target);                  // target
+//     h_pc->fetch_and_flush(bpnn->h_range_hidden_delta);           // hidden delta
+//
+//
+// }
 //////////////////////////////////////
 // CUDA Kernel ///////////////////////
 //////////////////////////////////////
@@ -1757,7 +1757,7 @@ int setup(int argc, char* argv[])
         for (uint32_t i = 0; i < settings.n_ctrls; i++) {
             ctrls[i] = new Controller(sam_ctrls_paths[i], settings.nvmNamespace, settings.cudaDevice, settings.queueDepth, settings.numQueues);
         }
-        h_pc = new page_cache_t(settings.pageSize, settings.maxPageCacheSize/settings.pageSize, settings.cudaDevice, ctrls[0][0], 64, ctrls);
+        h_pc = new page_cache_t(settings.pageSize, settings.maxPageCacheSize/settings.pageSize, settings.cudaDevice, 64);
     }
 
     seed = 7;   
