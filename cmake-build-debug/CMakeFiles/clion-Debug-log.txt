@@ -1,0 +1,42 @@
+/usr/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DCMAKE_C_COMPILER=/usr/bin/gcc-9 -DCMAKE_CXX_COMPILER=/usr/bin/g++-9 -G "CodeBlocks - Unix Makefiles" -S /home/tzwang/GMT-main -B /home/tzwang/GMT-main/cmake-build-debug
+-- The CUDA compiler identification is unknown
+-- The C compiler identification is GNU 9.4.0
+-- The CXX compiler identification is GNU 9.4.0
+-- Check for working CUDA compiler: /usr/bin/nvcc
+-- Check for working CUDA compiler: /usr/bin/nvcc -- broken
+CMake Error at /usr/share/cmake-3.16/Modules/CMakeTestCUDACompiler.cmake:46 (message):
+  The CUDA compiler
+
+    "/usr/bin/nvcc"
+
+  is not able to compile a simple test program.
+
+  It fails with the following output:
+
+    Change Dir: /home/tzwang/GMT-main/cmake-build-debug/CMakeFiles/CMakeTmp
+    
+    Run Build Command(s):/usr/bin/make cmTC_1515c/fast && /usr/bin/make -f CMakeFiles/cmTC_1515c.dir/build.make CMakeFiles/cmTC_1515c.dir/build
+    make[1]: Entering directory '/home/tzwang/GMT-main/cmake-build-debug/CMakeFiles/CMakeTmp'
+    Building CUDA object CMakeFiles/cmTC_1515c.dir/main.cu.o
+    /usr/bin/nvcc     -x cu -c /home/tzwang/GMT-main/cmake-build-debug/CMakeFiles/CMakeTmp/main.cu -o CMakeFiles/cmTC_1515c.dir/main.cu.o
+    In file included from /usr/include/cuda_runtime.h:83,
+                     from <command-line>:
+    /usr/include/crt/host_config.h:138:2: error: #error -- unsupported GNU version! gcc versions later than 8 are not supported!
+      138 | #error -- unsupported GNU version! gcc versions later than 8 are not supported!
+          |  ^~~~~
+    make[1]: *** [CMakeFiles/cmTC_1515c.dir/build.make:66: CMakeFiles/cmTC_1515c.dir/main.cu.o] Error 1
+    make[1]: Leaving directory '/home/tzwang/GMT-main/cmake-build-debug/CMakeFiles/CMakeTmp'
+    make: *** [Makefile:121: cmTC_1515c/fast] Error 2
+    
+    
+
+  
+
+  CMake will not be able to correctly generate this project.
+Call Stack (most recent call first):
+  CMakeLists.txt:2 (project)
+
+
+-- Configuring incomplete, errors occurred!
+See also "/home/tzwang/GMT-main/cmake-build-debug/CMakeFiles/CMakeOutput.log".
+See also "/home/tzwang/GMT-main/cmake-build-debug/CMakeFiles/CMakeError.log".
