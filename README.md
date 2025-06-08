@@ -1,3 +1,3 @@
-# GMT - GPU-Orchestrated Memory Tiering
+# GMT for test
 
-### GMT is built on top of BaM, please refer to [BaM](https://github.com/ZaidQureshi/bam) for installation.
+### My GPU management project based on GMT.
