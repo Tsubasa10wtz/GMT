@@ -179,7 +179,7 @@ BPNN *bpnn_read();
 //const char* const sam_ctrls_paths[] = {"/dev/libnvm0"};
 const char* const sam_ctrls_paths[] = {"/dev/libnvm_vmalloc0"};
 Settings settings;
-std::vector<Controller*> ctrls;
+// std::vector<Controller*> ctrls;
 page_cache_t* h_pc;
 HostCache* hc;
 
@@ -1366,6 +1366,8 @@ main( int argc, char** argv)
         return 1;
     }
 
+    printf("Start main\n");
+
     setup(argc, argv);
 }
 
@@ -1681,7 +1683,7 @@ for (int iter = 0; iter < settings.iter; iter++)
     
     if (settings.memalloc == BAFS_DIRECT) {
         print_stats(net);
-        ctrls[0]->print_reset_stats();
+        // ctrls[0]->print_reset_stats();
     }
 
 #endif   
@@ -1704,7 +1706,7 @@ backprop_face()
     
     //entering the training kernel, only one iteration
 #if USE_HOST_CACHE
-    hc = createHostCache(ctrls[0], settings.maxPageCacheSize);
+    hc = createHostCache(settings.maxPageCacheSize);
 
     uint64_t acc_pages = 0;
 
@@ -1735,7 +1737,7 @@ backprop_face()
         delete net;
     printf("Training done\n");
 #if USE_HOST_CACHE
-    //delete hc;
+    delete hc; // 原本是注释的
 #endif
 }
 
@@ -1753,12 +1755,14 @@ int setup(int argc, char* argv[])
     }
 
     if (settings.memalloc == BAFS_DIRECT) {
-        ctrls.resize(settings.n_ctrls);
-        for (uint32_t i = 0; i < settings.n_ctrls; i++) {
-            ctrls[i] = new Controller(sam_ctrls_paths[i], settings.nvmNamespace, settings.cudaDevice, settings.queueDepth, settings.numQueues);
-        }
+        // ctrls.resize(settings.n_ctrls);
+        // for (uint32_t i = 0; i < settings.n_ctrls; i++) {
+        //     ctrls[i] = new Controller(sam_ctrls_paths[i], settings.nvmNamespace, settings.cudaDevice, settings.queueDepth, settings.numQueues);
+        // }
         h_pc = new page_cache_t(settings.pageSize, settings.maxPageCacheSize/settings.pageSize, settings.cudaDevice, 64);
     }
+
+    printf("Finish Setup!");
 
     seed = 7;   
     bpnn_initialize(seed);

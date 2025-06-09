@@ -663,6 +663,7 @@ public:
 class HostCache {
 public:
     HostCache(Controller* ctrl, uint64_t gpu_mem_size);
+    HostCache(uint64_t gpu_mem_size);
     HostCache();
     ~HostCache();
     //void setGDSHandler(GDS_HANDLER* _gds_handler);
@@ -704,7 +705,7 @@ public:
     std::atomic<uint64_t> valid_entry_count;
 
     cudaStream_t cu_stream;
-    Controller* ctrl;
+    // Controller* ctrl;
 
     #define NUM_NVME_QUEUES 1
     QueuePair* qp[NUM_NVME_QUEUES];
@@ -1270,7 +1271,7 @@ public:
     uint32_t large_rd = 0;
 };
 
-HostCache* createHostCache(Controller* ctrl);
+// HostCache* createHostCache(Controller* ctrl);
 void revokeHostRuntime();
 void preLoadData(int fd, size_t page_size);
 //void registerGPUMem(void*, size_t);
@@ -2612,7 +2613,283 @@ __global__ void verify (void* ptr)
     printf("page_profile_info %lx\n", (uint64_t)page_info_dev);
 }
 
-HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl), gpu_mem_size(_gpu_mem_size)
+// HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl), gpu_mem_size(_gpu_mem_size)
+// //HostCache::HostCache()
+// {
+//     //INIT_SHARED_MEM_PTR(GpuOpenFileTable, this->host_open_table, gpu_open_table);
+//     INIT_SHARED_MEM_PTR(GpuFileRwManager, this->host_rw_manager, gpu_rw_manager);
+//     INIT_SHARED_MEM_PTR(GpuFileRwManager, this->host_rw_manager_mem, gpu_rw_manager_mem);
+//     INIT_SHARED_MEM_PTR(GpuRwQueue, this->host_rw_queue, gpu_rw_queue);
+//     INIT_SHARED_MEM_PTR(GpuRwQueue, this->host_rw_queue_mem, gpu_rw_queue_mem);
+//     INIT_SHARED_MEM_PTR(HostCacheRuntimeState, this->hc_runtime_state, gpu_hc_runtime_state);
+//     //for (int i = 0; i < GPU_RW_SIZE; i++) {
+//     //    INIT_SHARED_MEM_PTR(GPU_RW_QUEUE_ENTRY, this->host_rw_queue->entries[i], gpu_rw_queue->entries[i]);
+//     //}
+//
+//     //__device__ PageProfileInfo* page_info_dev;
+//     //INIT_DEVICE_MEM(PageProfileInfo, dev_ptr, device_symbol);
+//
+//     // Open file table initialization
+//     //this->host_open_table->init();
+//
+//     // File read/write manager initialization
+//     this->host_rw_manager->init(this->host_rw_queue);
+//     this->host_rw_manager_mem->init(this->host_rw_queue_mem);
+//
+//     // Read/write queue initialization
+//     this->host_rw_queue->init();
+//     this->host_rw_queue_mem->init();
+//
+//     fprintf(stderr, "create host buffer for host cache\n");
+//     // Host buffers
+//     for (uint32_t i = 0; i < GPU_RW_SIZE; i++) {
+//         // TODO: Fix size 2m now
+//         cudaHostAlloc(&(this->host_buffer[i]), PAGE_SIZE, cudaHostAllocDefault);
+//         if (this->host_buffer[i] == NULL) {
+//             fprintf(stderr, "Host Allocate failed %d.", i);
+//             exit(-1);
+//         }
+//     }
+//     this->num_pages = HOST_MEM_SIZE / PAGE_SIZE;
+//     this->num_ctrl_pages_in_one_line = PAGE_SIZE / _ctrl->ctrl->page_size;
+//
+// #if USER_SPACE_ZERO_COPY == 0
+//     // CHIA-HAO: call dma functions to get physical address
+//     posix_memalign((void**)&host_mem, PAGE_SIZE, HOST_MEM_SIZE);
+//
+//     int ret = mlock(host_mem, (size_t)HOST_MEM_SIZE);
+//     if (ret != 0) {
+//         fprintf(stderr, "mlock for host_mem failed...(%s)\n", strerror(errno));
+//         exit(1);
+//     }
+//     madvise(host_mem, PAGE_SIZE, MADV_HUGEPAGE);
+//     printf("host mem base addr %lx\n", host_mem);
+//     //CUDA_SAFE_CALL(cudaHostRegister(host_mem, HOST_MEM_SIZE, cudaHostRegisterPortable));
+//     CUDA_SAFE_CALL(cudaHostRegister(host_mem, HOST_MEM_SIZE, cudaHostRegisterDefault));
+//
+//
+// #else
+//     ///*
+//     useHugePage = true;
+//
+//     fprintf(stderr, "create dma for host cache\n");
+//     this->host_dma = createDma((const nvm_ctrl_t*)_ctrl->ctrl, (size_t)HOST_MEM_SIZE);
+//     host_mem = host_dma->vaddr;
+//
+//     int ret = mlock(host_mem, (size_t)HOST_MEM_SIZE);
+//     if (ret != 0) {
+//         fprintf(stderr, "mlock for host_mem failed...\n");
+//         exit(1);
+//     }
+//     memset(host_mem, 0, (size_t)HOST_MEM_SIZE);
+//     printf("host cache memory vaddr %llx (#pages %llu)\n", (uint64_t)host_mem, host_dma->n_ioaddrs);
+//
+//     // Fill in prp1 and prp2
+//     //useHugePage = true;
+//     ///*
+//     this->prp1 = new uint64_t[this->num_pages];
+//     this->prp2 = new uint64_t[this->num_pages];
+//     this->prp2_dma = createDma((const nvm_ctrl_t*)_ctrl->ctrl, (size_t)this->num_pages * _ctrl->ctrl->page_size);
+//
+//     ret = mlock(prp2_dma->vaddr, (size_t)this->num_pages * _ctrl->ctrl->page_size);
+//     if (ret != 0) {
+//         fprintf(stderr, "mlock for prp2 failed...\n");
+//         exit(1);
+//     }
+//     const uint32_t uints_per_page = _ctrl->ctrl->page_size / sizeof(uint64_t);
+//     for (uint32_t i = 0; i < this->num_pages; i++) {
+//         //printf("page[%u]: %llx\n", i, host_dma->ioaddrs[i*this->num_ctrl_pages_in_one_line]);
+//         this->prp1[i] = host_dma->ioaddrs[i*this->num_ctrl_pages_in_one_line];
+//         this->prp2[i] = prp2_dma->ioaddrs[i];
+//         for (uint32_t j = 1; j < this->num_ctrl_pages_in_one_line; j++) {
+//             //printf("page[%u][%u]: %llx (phys %llx)\n", i, j, host_dma->ioaddrs[i*this->num_ctrl_pages_in_one_line+j], );
+//             ((uint64_t*)prp2_dma->vaddr)[i*uints_per_page + j-1] = host_dma->ioaddrs[i*this->num_ctrl_pages_in_one_line + j];
+//             //printf("page[%u][%u]: %llx (phys %llx)\n", i, j, host_dma->ioaddrs[i*this->num_ctrl_pages_in_one_line+j], ((uint64_t*)prp2_dma->vaddr)[i*uints_per_page + j-1]);
+//         }
+//         //printf("---------------------------\n");
+//     }
+//     printf("prp2 memory vaddr %llx (#pages %llu)\n", (uint64_t)this->prp2, prp2_dma->n_ioaddrs);
+//     //*/
+//     CUDA_SAFE_CALL(cudaHostRegister(host_mem, HOST_MEM_SIZE, cudaHostRegisterPortable));
+//     //CUDA_SAFE_CALL(cudaHostRegister(host_mem, HOST_MEM_SIZE, cudaHostRegisterDefault));
+//
+//     this->q_head = new simt::atomic<uint64_t, simt::thread_scope_device>();
+//     this->q_tail = new simt::atomic<uint64_t, simt::thread_scope_device>();
+// #endif
+//
+//     /* Copy # pages info to GPU */
+//     uint64_t gpu_mem_size_pages = gpu_mem_size / PAGE_SIZE;
+//     uint64_t cpu_mem_size_pages = HOST_MEM_NUM_PAGES;
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(first_tier_mem_pages, &gpu_mem_size_pages, sizeof(uint64_t)));
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(second_tier_mem_pages, &cpu_mem_size_pages, sizeof(uint64_t)));
+//
+//     /**/
+//     printf("cpu mem size pages %u\n", cpu_mem_size_pages);
+//     CUDA_SAFE_CALL(cudaMallocHost((void**)(&num_idle_slots_h), sizeof(uint64_t)));
+//     //CUDA_SAFE_CALL(cudaMemset((void*)(num_idle_slots_h), cpu_mem_size_pages, sizeof(uint64_t)));
+//     memcpy((void*)(num_idle_slots_h), (void*)&cpu_mem_size_pages, sizeof(uint64_t));
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(num_idle_slots, &num_idle_slots_h, sizeof(uint64_t*)));
+//
+//     /* For random generator */
+//     //#if USE_RAND_POLICY
+//     CUDA_SAFE_CALL(cudaMalloc((void**)(&curand_state_h), sizeof(curandState)));
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(curand_state, &curand_state_h, sizeof(curandState*)));
+//     init_rand_generator<<<1,1>>>();
+//     //#endif
+//
+//     /* Linear Regression Info */
+//     CUDA_SAFE_CALL(cudaMallocHost((void**)(&linear_reg_info_idx_h), sizeof(uint32_t)));
+//     CUDA_SAFE_CALL(cudaMemset((void*)(linear_reg_info_idx_h), 0, sizeof(uint32_t)));
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(linear_reg_info_idx, &linear_reg_info_idx_h, sizeof(uint32_t*)));
+//
+//     #if DYNAMIC_SAMPLE_FREQ
+//     uint32_t default_freq = SAMPLE_FREQ;
+//     CUDA_SAFE_CALL(cudaMallocHost((void**)(&dynamic_sample_freq_h), sizeof(uint32_t)));
+//     //CUDA_SAFE_CALL(cudaMemset((void*)(dynamic_sample_freq_h), 4, sizeof(uint32_t)));
+//     memcpy((void*)(dynamic_sample_freq_h), (void*)&default_freq, sizeof(uint32_t));
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(dynamic_sample_freq, &dynamic_sample_freq_h, sizeof(uint32_t*)));
+//     #endif
+//
+//     CUDA_SAFE_CALL(cudaMallocHost((void**)(&linear_reg_info_h), sizeof(LinearRegInfo)*2)); // double buffer
+//     linear_reg_info_h[0].slope = 1000.0;
+//     linear_reg_info_h[0].offset = 0.0;
+//     linear_reg_info_h[1].slope = 1000.0;
+//     linear_reg_info_h[1].offset = 0.0;
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(linear_reg_info, &linear_reg_info_h, sizeof(LinearRegInfo*)));
+//
+//     /* Tier Bins */
+//     TierBins tier_bins_local;
+//     tier_bins_local.threshold = gpu_mem_size_pages + cpu_mem_size_pages;
+//     CUDA_SAFE_CALL(cudaMalloc((void**)(&tier_bins_h), sizeof(TierBins)));
+//     CUDA_SAFE_CALL(cudaMemcpy((void*)tier_bins_h, (void*)&tier_bins_local, sizeof(TierBins), cudaMemcpyHostToDevice));
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(tier_bins_d, &tier_bins_h, sizeof(TierBins*)));
+//
+//     /* Tier Eviction Queue */
+//     CUDA_SAFE_CALL(cudaMalloc((void**)(&tier_eviction_queue_h), sizeof(uint8_t)*TIER_EVICTION_QUEUE_LENGTH));
+//     CUDA_SAFE_CALL(cudaMemset((void*)tier_eviction_queue_h, 0, sizeof(uint8_t)*TIER_EVICTION_QUEUE_LENGTH));
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(tier_eviction_queue, &tier_eviction_queue_h, sizeof(uint8_t*)));
+//     CUDA_SAFE_CALL(cudaMalloc((void**)(&teq_h), sizeof(TierEvictionQueue)));
+//     CUDA_SAFE_CALL(cudaMemset((void*)teq_h, 0, sizeof(TierEvictionQueue)));
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(teq, &teq_h, sizeof(TierEvictionQueue*)));
+//
+//
+//
+//     /* Circular buffer */
+//     host_ring_buffer_t *ring_buf_h = new host_ring_buffer_t();
+//     host_ring_buffer_t *ring_buf_d = init_ring_buf_for_dev(MEM_SAMPLES_RING_BUFFER_SIZE, ring_buf_h);
+//     CUDA_SAFE_CALL(cudaMemcpyToSymbol(mem_samples_ring_buf, &ring_buf_d, sizeof(host_ring_buffer_t*)));
+//
+//     /* Memory Samples Collector */
+//     mem_sample_collector = new MemSampleCollector(linear_reg_info_h, linear_reg_info_idx_h, ring_buf_h, ring_buf_d);
+//     mem_sample_collector->start_collector_thread();
+//     #if GET_GOLDEN_REUSE_DISTANCE
+//     golden_mem_collector = new MemSampleCollector(this->host_rw_queue_mem);
+//     golden_mem_collector->start_rw_queue_thread();
+//     #endif
+//
+//     host_cache_state.resize(HOST_MEM_NUM_PAGES);
+//     bid = 0;
+//
+//     //#if USE_PINNED_MEM
+//     {
+//         void* tmp_ptr = NULL;
+//         CUDA_SAFE_CALL(cudaHostGetDevicePointer((void**)(&tmp_ptr), (void*)host_mem, 0));\
+//         CUDA_SAFE_CALL(cudaMemcpyToSymbol(host_cache_base, &tmp_ptr, sizeof(void*)));\
+//     }
+//     //#endif
+//
+//     /* Queue Pair for Host Cache */
+//     #define HOST_QUEUE_NUM_ENTRIES 4096
+//     //this->qp = new QueuePair(_ctrl->ctrl, _ctrl->ns, _ctrl->info, _ctrl->aq_ref, _ctrl->n_qps+1, HOST_QUEUE_NUM_ENTRIES);
+//     for (uint32_t i = 0; i < NUM_NVME_QUEUES; i++) {
+//         this->qp[i] = new QueuePair(_ctrl->ctrl, _ctrl->ns, _ctrl->info, _ctrl->aq_ref, _ctrl->n_qps+i+1, HOST_QUEUE_NUM_ENTRIES);
+//         //this->sq_host.cid_h = new padded_struct_h();
+//         this->sq_host[i].cid_h = (padded_struct_h*)malloc(sizeof(padded_struct_h)*65536);
+//         //this->cq_host.pos_locks_h = new padded_struct_h();
+//         this->cq_host[i].pos_locks_h = (padded_struct_h*)malloc(sizeof(padded_struct_h)*HOST_QUEUE_NUM_ENTRIES);
+//         memset(this->cq_host[i].pos_locks_h, 0, sizeof(padded_struct_h)*HOST_QUEUE_NUM_ENTRIES);
+//     }
+//
+//     //
+//     stream_mngr = new StreamManager();
+//     appName = "pagerank128M";
+//     fetch_from_host_count = 0;
+//
+//     // TODO: Handle Profile...
+// #if APPLY_PROFILE
+//     readProfiledLog();
+//     assert(fetchEvictMap.size() != 0);
+//     INIT_DEVICE_MEM_ARRARY(PageProfileInfo, page_info_dev, &(profile_info_vec[0]), fetchEvictMap.size());
+//     std::cerr << "Init page info dev finished...\n";
+// #endif
+//
+//
+// #if TIME_BREAK_DOWN_FOR_PERF_TEST
+//     perf_test_time_profile_vec.resize(GPU_RW_SIZE);
+// #endif
+//
+// #if BASIC_TEST
+//     // Test
+//     void* gpu_buff = NULL;
+//
+//     //delete mem_sample_collector;
+//     //delete stream_mngr;
+//
+// #if USER_SPACE_ZERO_COPY == 0
+//     cudaMalloc(&gpu_buff, PAGE_SIZE);
+//     #if MULTI_DATA_STREAM
+//     CUDA_SAFE_CALL(cudaMemcpyAsync(host_mem, gpu_buff, PAGE_SIZE, cudaMemcpyDeviceToHost, stream_mngr->data_stream_from_device[0]));
+//     #else
+//     CUDA_SAFE_CALL(cudaMemcpyAsync(host_mem, gpu_buff, PAGE_SIZE, cudaMemcpyDeviceToHost, stream_mngr->data_stream_from_device));
+//     #endif
+//     cudaFree(gpu_buff);
+//     fprintf(stderr, "cudaMemcpyAsync test for host mem is good.\n");
+//     // Write data test
+//     /*
+//     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 0), 'X', PAGE_SIZE);
+//     write_data_from_hc(this, 0, PAGE_SIZE/512, 0, 0);
+//     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 1), 'Y', PAGE_SIZE);
+//     write_data_from_hc(this, 128, PAGE_SIZE/512, 1, 1 % NUM_NVME_QUEUES);
+//     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 2), 'Z', PAGE_SIZE);
+//     write_data_from_hc(this, 256, PAGE_SIZE/512, 2, 2 % NUM_NVME_QUEUES);
+//     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 3), 'A', PAGE_SIZE);
+//     write_data_from_hc(this, 384, PAGE_SIZE/512, 3, 3 % NUM_NVME_QUEUES);
+//     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 4), 'B', PAGE_SIZE);
+//     write_data_from_hc(this, 512, PAGE_SIZE/512, 4, 4 % NUM_NVME_QUEUES);
+//     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 5), 'C', PAGE_SIZE);
+//     write_data_from_hc(this, 640, PAGE_SIZE/512, 5, 5 % NUM_NVME_QUEUES);
+//     fprintf(stderr, "write_data_from_hc to SSD test for host mem is good.\n");
+//
+//
+//     read_data_to_hc(this, 0, PAGE_SIZE/512, 6);
+//     read_data_to_hc(this, 128, PAGE_SIZE/512, 7);
+//     read_data_to_hc(this, 256, PAGE_SIZE/512, 8);
+//     read_data_to_hc(this, 384, PAGE_SIZE/512, 9);
+//     read_data_to_hc(this, 512, PAGE_SIZE/512, 10);
+//     read_data_to_hc(this, 640, PAGE_SIZE/512, 11);
+//     for (int i = 0; i < PAGE_SIZE; i++) {
+//         if (*((unsigned char*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 6) + i) != 'X' ||
+//             *((unsigned char*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 7) + i) != 'Y' ||
+//             *((unsigned char*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 8) + i) != 'Z' ||
+//             *((unsigned char*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 9) + i) != 'A' ||
+//             *((unsigned char*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 10) + i) != 'B' ||
+//             *((unsigned char*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 11) + i) != 'C'
+//             ) {
+//             fprintf(stderr, "read_data_to_hc failed!\n");
+//             exit(1);
+//         }
+//     }
+//     printf("\n");
+//     fprintf(stderr, "read_data_to_hc to SSD test for host mem is good.\n");
+//     */
+// #endif
+//
+// #endif
+//
+//
+// }
+
+HostCache::HostCache(uint64_t _gpu_mem_size = 0) : gpu_mem_size(_gpu_mem_size)
 //HostCache::HostCache()
 {
     //INIT_SHARED_MEM_PTR(GpuOpenFileTable, this->host_open_table, gpu_open_table);
@@ -2627,7 +2904,7 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
 
     //__device__ PageProfileInfo* page_info_dev;
     //INIT_DEVICE_MEM(PageProfileInfo, dev_ptr, device_symbol);
-    
+
     // Open file table initialization
     //this->host_open_table->init();
 
@@ -2638,7 +2915,7 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
     // Read/write queue initialization
     this->host_rw_queue->init();
     this->host_rw_queue_mem->init();
-    
+
     fprintf(stderr, "create host buffer for host cache\n");
     // Host buffers
     for (uint32_t i = 0; i < GPU_RW_SIZE; i++) {
@@ -2650,12 +2927,12 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
         }
     }
     this->num_pages = HOST_MEM_SIZE / PAGE_SIZE;
-    this->num_ctrl_pages_in_one_line = PAGE_SIZE / _ctrl->ctrl->page_size;
+    // this->num_ctrl_pages_in_one_line = PAGE_SIZE / _ctrl->ctrl->page_size;
 
 #if USER_SPACE_ZERO_COPY == 0
     // CHIA-HAO: call dma functions to get physical address
     posix_memalign((void**)&host_mem, PAGE_SIZE, HOST_MEM_SIZE);
-    
+
     int ret = mlock(host_mem, (size_t)HOST_MEM_SIZE);
     if (ret != 0) {
         fprintf(stderr, "mlock for host_mem failed...(%s)\n", strerror(errno));
@@ -2665,7 +2942,7 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
     printf("host mem base addr %lx\n", host_mem);
     //CUDA_SAFE_CALL(cudaHostRegister(host_mem, HOST_MEM_SIZE, cudaHostRegisterPortable));
     CUDA_SAFE_CALL(cudaHostRegister(host_mem, HOST_MEM_SIZE, cudaHostRegisterDefault));
-    
+
 
 #else
     ///*
@@ -2682,7 +2959,7 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
     }
     memset(host_mem, 0, (size_t)HOST_MEM_SIZE);
     printf("host cache memory vaddr %llx (#pages %llu)\n", (uint64_t)host_mem, host_dma->n_ioaddrs);
-    
+
     // Fill in prp1 and prp2
     //useHugePage = true;
     ///*
@@ -2702,7 +2979,7 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
         this->prp2[i] = prp2_dma->ioaddrs[i];
         for (uint32_t j = 1; j < this->num_ctrl_pages_in_one_line; j++) {
             //printf("page[%u][%u]: %llx (phys %llx)\n", i, j, host_dma->ioaddrs[i*this->num_ctrl_pages_in_one_line+j], );
-            ((uint64_t*)prp2_dma->vaddr)[i*uints_per_page + j-1] = host_dma->ioaddrs[i*this->num_ctrl_pages_in_one_line + j]; 
+            ((uint64_t*)prp2_dma->vaddr)[i*uints_per_page + j-1] = host_dma->ioaddrs[i*this->num_ctrl_pages_in_one_line + j];
             //printf("page[%u][%u]: %llx (phys %llx)\n", i, j, host_dma->ioaddrs[i*this->num_ctrl_pages_in_one_line+j], ((uint64_t*)prp2_dma->vaddr)[i*uints_per_page + j-1]);
         }
         //printf("---------------------------\n");
@@ -2711,11 +2988,11 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
     //*/
     CUDA_SAFE_CALL(cudaHostRegister(host_mem, HOST_MEM_SIZE, cudaHostRegisterPortable));
     //CUDA_SAFE_CALL(cudaHostRegister(host_mem, HOST_MEM_SIZE, cudaHostRegisterDefault));
-    
+
     this->q_head = new simt::atomic<uint64_t, simt::thread_scope_device>();
     this->q_tail = new simt::atomic<uint64_t, simt::thread_scope_device>();
 #endif
-    
+
     /* Copy # pages info to GPU */
     uint64_t gpu_mem_size_pages = gpu_mem_size / PAGE_SIZE;
     uint64_t cpu_mem_size_pages = HOST_MEM_NUM_PAGES;
@@ -2728,7 +3005,7 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
     //CUDA_SAFE_CALL(cudaMemset((void*)(num_idle_slots_h), cpu_mem_size_pages, sizeof(uint64_t)));
     memcpy((void*)(num_idle_slots_h), (void*)&cpu_mem_size_pages, sizeof(uint64_t));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(num_idle_slots, &num_idle_slots_h, sizeof(uint64_t*)));
-  
+
     /* For random generator */
     //#if USE_RAND_POLICY
     CUDA_SAFE_CALL(cudaMalloc((void**)(&curand_state_h), sizeof(curandState)));
@@ -2755,7 +3032,7 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
     linear_reg_info_h[1].slope = 1000.0;
     linear_reg_info_h[1].offset = 0.0;
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(linear_reg_info, &linear_reg_info_h, sizeof(LinearRegInfo*)));
-    
+
     /* Tier Bins */
     TierBins tier_bins_local;
     tier_bins_local.threshold = gpu_mem_size_pages + cpu_mem_size_pages;
@@ -2781,7 +3058,7 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
     /* Memory Samples Collector */
     mem_sample_collector = new MemSampleCollector(linear_reg_info_h, linear_reg_info_idx_h, ring_buf_h, ring_buf_d);
     mem_sample_collector->start_collector_thread();
-    #if GET_GOLDEN_REUSE_DISTANCE 
+    #if GET_GOLDEN_REUSE_DISTANCE
     golden_mem_collector = new MemSampleCollector(this->host_rw_queue_mem);
     golden_mem_collector->start_rw_queue_thread();
     #endif
@@ -2796,12 +3073,12 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
         CUDA_SAFE_CALL(cudaMemcpyToSymbol(host_cache_base, &tmp_ptr, sizeof(void*)));\
     }
     //#endif
-    
+
     /* Queue Pair for Host Cache */
     #define HOST_QUEUE_NUM_ENTRIES 4096
     //this->qp = new QueuePair(_ctrl->ctrl, _ctrl->ns, _ctrl->info, _ctrl->aq_ref, _ctrl->n_qps+1, HOST_QUEUE_NUM_ENTRIES);
     for (uint32_t i = 0; i < NUM_NVME_QUEUES; i++) {
-        this->qp[i] = new QueuePair(_ctrl->ctrl, _ctrl->ns, _ctrl->info, _ctrl->aq_ref, _ctrl->n_qps+i+1, HOST_QUEUE_NUM_ENTRIES);
+        // this->qp[i] = new QueuePair(_ctrl->ctrl, _ctrl->ns, _ctrl->info, _ctrl->aq_ref, _ctrl->n_qps+i+1, HOST_QUEUE_NUM_ENTRIES);
         //this->sq_host.cid_h = new padded_struct_h();
         this->sq_host[i].cid_h = (padded_struct_h*)malloc(sizeof(padded_struct_h)*65536);
         //this->cq_host.pos_locks_h = new padded_struct_h();
@@ -2809,12 +3086,12 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
         memset(this->cq_host[i].pos_locks_h, 0, sizeof(padded_struct_h)*HOST_QUEUE_NUM_ENTRIES);
     }
 
-    // 
+    //
     stream_mngr = new StreamManager();
     appName = "pagerank128M";
     fetch_from_host_count = 0;
 
-    // TODO: Handle Profile... 
+    // TODO: Handle Profile...
 #if APPLY_PROFILE
     readProfiledLog();
     assert(fetchEvictMap.size() != 0);
@@ -2826,11 +3103,11 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
 #if TIME_BREAK_DOWN_FOR_PERF_TEST
     perf_test_time_profile_vec.resize(GPU_RW_SIZE);
 #endif
-    
+
 #if BASIC_TEST
     // Test
     void* gpu_buff = NULL;
-    
+
     //delete mem_sample_collector;
     //delete stream_mngr;
 
@@ -2846,17 +3123,17 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
     // Write data test
     /*
     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 0), 'X', PAGE_SIZE);
-    write_data_from_hc(this, 0, PAGE_SIZE/512, 0, 0); 
+    write_data_from_hc(this, 0, PAGE_SIZE/512, 0, 0);
     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 1), 'Y', PAGE_SIZE);
-    write_data_from_hc(this, 128, PAGE_SIZE/512, 1, 1 % NUM_NVME_QUEUES); 
+    write_data_from_hc(this, 128, PAGE_SIZE/512, 1, 1 % NUM_NVME_QUEUES);
     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 2), 'Z', PAGE_SIZE);
-    write_data_from_hc(this, 256, PAGE_SIZE/512, 2, 2 % NUM_NVME_QUEUES); 
+    write_data_from_hc(this, 256, PAGE_SIZE/512, 2, 2 % NUM_NVME_QUEUES);
     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 3), 'A', PAGE_SIZE);
-    write_data_from_hc(this, 384, PAGE_SIZE/512, 3, 3 % NUM_NVME_QUEUES); 
+    write_data_from_hc(this, 384, PAGE_SIZE/512, 3, 3 % NUM_NVME_QUEUES);
     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 4), 'B', PAGE_SIZE);
-    write_data_from_hc(this, 512, PAGE_SIZE/512, 4, 4 % NUM_NVME_QUEUES); 
+    write_data_from_hc(this, 512, PAGE_SIZE/512, 4, 4 % NUM_NVME_QUEUES);
     memset((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, 5), 'C', PAGE_SIZE);
-    write_data_from_hc(this, 640, PAGE_SIZE/512, 5, 5 % NUM_NVME_QUEUES); 
+    write_data_from_hc(this, 640, PAGE_SIZE/512, 5, 5 % NUM_NVME_QUEUES);
     fprintf(stderr, "write_data_from_hc to SSD test for host mem is good.\n");
 
 
@@ -2885,7 +3162,7 @@ HostCache::HostCache(Controller* _ctrl, uint64_t _gpu_mem_size = 0) : ctrl(_ctrl
 
 #endif
 
-    
+
 }
 
 HostCache::~HostCache()
@@ -3544,43 +3821,75 @@ static void* host_flush_page_batch(void* arg)
 }
 
 
-static void* start_host_runtime_thread(void* arg) 
+// static void* start_host_runtime_thread(void* arg)
+// {
+//     host_cache = new HostCache((Controller*)arg, pc_mem_size);
+//     //host_cache->setGDSHandler((GDS_HANDLER*)arg);
+//     CPU_PRINT("Start Host Cache Main Loop\n");
+//
+//     #if PRE_LAUNCH_THREADS
+//     host_cache->launchThreadLoop();
+//     #else
+//     host_cache->mainLoop();
+//     #endif
+//
+//     delete host_cache;
+//     printf("Host Cache deleted...\n");
+//     return NULL;
+// }
+
+// HostCache* createHostCache(Controller* ctrl, size_t _pc_mem_size)
+// {
+//     int ret;
+//
+//     pc_mem_size = _pc_mem_size;
+//     //GDS_HANDLER* gds_handler = new GDS_HANDLER();
+//     ret = pthread_create(&host_runtime_thread, NULL, &start_host_runtime_thread, (void*)ctrl);
+//     if (ret != 0) {
+//         handle_error_en(ret, "Create Host Runtime Failed...");
+//     }
+//     while (host_cache == NULL);
+//     //pthread_join(host_runtime_thread, NULL);
+//
+//     // for host p2p
+//     //#if !EXCLUDE_SPIN
+//     //spin_init();
+//     //#endif
+//
+//     CPU_PRINT("Create Host Cache Done!\n");
+//     return (HostCache*)host_cache;
+// }
+
+static void* start_host_runtime_thread(void* /*arg*/)
 {
-    host_cache = new HostCache((Controller*)arg, pc_mem_size);
-    //host_cache->setGDSHandler((GDS_HANDLER*)arg);
+    host_cache = new HostCache(pc_mem_size);  // ✅ 不再传 ctrl
     CPU_PRINT("Start Host Cache Main Loop\n");
-    
-    #if PRE_LAUNCH_THREADS
+
+#if PRE_LAUNCH_THREADS
     host_cache->launchThreadLoop();
-    #else
+#else
     host_cache->mainLoop();
-    #endif
+#endif
 
     delete host_cache;
     printf("Host Cache deleted...\n");
     return NULL;
 }
 
-HostCache* createHostCache(Controller* ctrl, size_t _pc_mem_size)
+HostCache* createHostCache(size_t _pc_mem_size)
 {
     int ret;
 
     pc_mem_size = _pc_mem_size;
-    //GDS_HANDLER* gds_handler = new GDS_HANDLER();
-    ret = pthread_create(&host_runtime_thread, NULL, &start_host_runtime_thread, (void*)ctrl);
+    ret = pthread_create(&host_runtime_thread, NULL, &start_host_runtime_thread, NULL);
     if (ret != 0) {
-        handle_error_en(ret, "Create Host Runtime Failed...");   
+        handle_error_en(ret, "Create Host Runtime Failed...");
     }
-    while (host_cache == NULL);
-    //pthread_join(host_runtime_thread, NULL);
 
-    // for host p2p
-    //#if !EXCLUDE_SPIN
-    //spin_init();
-    //#endif
+    while (host_cache == NULL);  // 同步等待线程完成构造
 
     CPU_PRINT("Create Host Cache Done!\n");
-    return (HostCache*)host_cache;
+    return host_cache;
 }
 
 void flushHostCache()
