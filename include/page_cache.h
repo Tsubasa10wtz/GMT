@@ -1225,9 +1225,36 @@ struct page_cache_t {
         std::cout << "n_ranges_bits: " << std::dec << pdt.n_ranges_bits << std::endl;
         std::cout << "n_ranges_mask: " << std::dec << pdt.n_ranges_mask << std::endl;
 
+        printf("breakpoint 0\n");
+        // original
         pdt.page_size_log = std::log2(ps);
         ranges_buf = createBuffer(max_range * sizeof(pages_t), cudaDevice);
         pdt.ranges = (pages_t*)ranges_buf.get();
+        // original
+
+        // pdt.page_size_log = std::log2(ps);
+        // printf("breakpoint 0.1\n");
+        // ranges_buf = createBuffer(max_range * sizeof(pages_t), cudaDevice);
+        // printf("breakpoint 0.2\n");
+        //
+        // void* raw_ptr = ranges_buf.get();
+        // printf("raw_ptr = %p\n", raw_ptr);
+        // fflush(stdout);
+        //
+        // // 尝试写入测试（强制访问）
+        // ((char*)raw_ptr)[0] = 0;
+        // printf("write test passed\n");
+        // fflush(stdout);
+        //
+        // if (!raw_ptr) {
+        //     fprintf(stderr, "Failed to allocate GPU buffer for ranges (size = %lu)\n", max_range);
+        //     std::abort();  // or throw exception
+        // }
+        // pdt.ranges = (pages_t*)raw_ptr;
+
+        printf("breakpoint 1 \n");
+        fflush(stdout);
+
 
         //ranges_reuse_hist_buf = createBuffer(max_range * sizeof(page_reuse_hist_t*), cudaDevice);
         //pdt.ranges_reuse_hist = (page_reuse_hist_t**)ranges_reuse_hist_buf.get();
@@ -1238,6 +1265,9 @@ struct page_cache_t {
 
         h_ranges_page_starts = new uint64_t[max_range];
         std::memset(h_ranges_page_starts, 0, max_range * sizeof(uint64_t));
+        printf("breakpoint 2 \n");
+        fflush(stdout);
+
 
         //pages_translation_buf = createBuffer(np * sizeof(uint32_t), cudaDevice);
         //pdt.page_translation = (uint32_t*)page_translation_buf.get();
@@ -1259,76 +1289,105 @@ struct page_cache_t {
         cache_page_t* tps = new cache_page_t[np];
         for (size_t i = 0; i < np; i++)
             tps[i].page_take_lock = FREE;
+
+        printf("breakpoint 2.1 \n");
+        fflush(stdout);
         cuda_err_chk(cudaMemcpy(pdt.cache_pages, tps, np*sizeof(cache_page_t), cudaMemcpyHostToDevice));
+        printf("breakpoint 2.2 \n");
+        fflush(stdout);
+
         delete tps;
+        printf("breakpoint 3 \n");
+        fflush(stdout);
+
+        printf("max_range = %lu, sizeof(data_dist_t) = %lu, total size = %lu\n",
+        max_range, sizeof(data_dist_t), max_range * sizeof(data_dist_t));
+        fflush(stdout);
 
         ranges_dists_buf = createBuffer(max_range * sizeof(data_dist_t), cudaDevice);
+        printf("breakpoint 3.1 \n");
+        fflush(stdout);
         pdt.ranges_dists = (data_dist_t*)ranges_dists_buf.get();
+        printf("breakpoint 3.2 \n");
+        fflush(stdout);
         h_ranges_dists = new data_dist_t[max_range];
+        printf("breakpoint 3.3 \n");
+        fflush(stdout);
 
-        uint64_t cache_size = ps*np;
-        pdt.base_addr = (uint8_t*) this->pages_dma.get()->vaddr;
-        std::cout << "pages_dma: " << std::hex << this->pages_dma.get()->vaddr << "\t" << this->pages_dma.get()->ioaddrs[0] << std::endl;
-        std::cout << "HEREN\n";
-            throw error(string("page_cache_t: Can't have such page size or number of pages"));
-        if (ps <= this->pages_dma.get()->page_size) {
-            std::cout << "Cond1\n";
-            this->prp1_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
-            pdt.prp1 = (uint64_t*) this->prp1_buf.get();
-            //std::cout << "HERE1\n";
-            //free(temp);
-            //std::cout << "HERE2\n";
-            pdt.prps = false;
-        }
+        // original
+        // uint64_t cache_size = ps*np;
+        // this->pages_dma = createDma(ctrl.ctrl, NVM_PAGE_ALIGN(cache_size, 1UL << 16), cudaDevice);
+        // pdt.base_addr = (uint8_t*) this->pages_dma.get()->vaddr;
 
-        else if ((ps > this->pages_dma.get()->page_size) && (ps <= (this->pages_dma.get()->page_size * 2))) {
-            this->prp1_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
-            pdt.prp1 = (uint64_t*) this->prp1_buf.get();
-            this->prp2_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
-            pdt.prp2 = (uint64_t*) this->prp2_buf.get();
-            //uint64_t* temp1 = (uint64_t*) malloc(np * sizeof(uint64_t));
-            uint64_t* temp1 = new uint64_t[np * sizeof(uint64_t)];
-            std::memset(temp1, 0, np * sizeof(uint64_t));
-            //uint64_t* temp2 = (uint64_t*) malloc(np * sizeof(uint64_t));
-            uint64_t* temp2 = new uint64_t[np * sizeof(uint64_t)];
-            std::memset(temp2, 0, np * sizeof(uint64_t));
-            for (size_t i = 0; i < np; i++) {
-                temp1[i] = ((uint64_t)this->pages_dma.get()->ioaddrs[i*2]);
-                temp2[i] = ((uint64_t)this->pages_dma.get()->ioaddrs[i*2+1]);
-            }
-            cuda_err_chk(cudaMemcpy(pdt.prp1, temp1, np * sizeof(uint64_t), cudaMemcpyHostToDevice));
-            cuda_err_chk(cudaMemcpy(pdt.prp2, temp2, np * sizeof(uint64_t), cudaMemcpyHostToDevice));
-
-            delete temp1;
-            delete temp2;
-            pdt.prps = true;
-        }
-        else {
-            this->prp1_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
-            pdt.prp1 = (uint64_t*) this->prp1_buf.get();
-            this->prp2_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
-            pdt.prp2 = (uint64_t*) this->prp2_buf.get();
-            uint64_t* temp1 = new uint64_t[np * sizeof(uint64_t)];
-            uint64_t* temp2 = new uint64_t[np * sizeof(uint64_t)];
-            /*
-              for (size_t i = 0; i < this->pages_dma.get()->n_ioaddrs; i+=how_many_in_one) {
-              temp1[i/how_many_in_one] = ((uint64_t)this->pages_dma.get()->ioaddrs[i]);
-              temp2[i/how_many_in_one] = ((uint64_t)this->prp_list_dma.get()->ioaddrs[i]);
-              for (size_t j = 0; j < (how_many_in_one-1); j++) {
-
-              temp3[(i/how_many_in_one)*uints_per_page + j] = ((uint64_t)this->pages_dma.get()->ioaddrs[i+1+j]);
-              }
-              }
-            */
-
-            std::cout << "Done creating PRP\n";
-            cuda_err_chk(cudaMemcpy(pdt.prp1, temp1, np * sizeof(uint64_t), cudaMemcpyHostToDevice));
-            cuda_err_chk(cudaMemcpy(pdt.prp2, temp2, np * sizeof(uint64_t), cudaMemcpyHostToDevice));
-
-            delete temp1;
-            delete temp2;
-            pdt.prps = true;
-        }
+        // std::cout << "pages_dma: " << std::hex << this->pages_dma.get()->vaddr << "\t" << this->pages_dma.get()->ioaddrs[0] << std::endl;
+//         std::cout << "HEREN\n";
+//         fflush(stdout);
+//         printf("breakpoint 3.4 \n");
+//         fflush(stdout);
+//         // const uint32_t uints_per_page = ctrl.ctrl->page_size / sizeof(uint64_t);
+//         // if ((pdt.page_size > (ctrl.ctrl->page_size * uints_per_page)) || (np == 0) || (pdt.page_size < ctrl.ns.lba_data_size))
+//         //     throw error(string("page_cache_t: Can't have such page size or number of pages"));
+//         if (ps <= this->pages_dma.get()->page_size) {
+//             std::cout << "Cond1\n";
+//             this->prp1_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
+//             pdt.prp1 = (uint64_t*) this->prp1_buf.get();
+//             //std::cout << "HERE1\n";
+//             //free(temp);
+//             //std::cout << "HERE2\n";
+//             pdt.prps = false;
+//         }
+//
+//         else if ((ps > this->pages_dma.get()->page_size) && (ps <= (this->pages_dma.get()->page_size * 2))) {
+//             this->prp1_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
+//             pdt.prp1 = (uint64_t*) this->prp1_buf.get();
+//             this->prp2_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
+//             pdt.prp2 = (uint64_t*) this->prp2_buf.get();
+//             //uint64_t* temp1 = (uint64_t*) malloc(np * sizeof(uint64_t));
+//             uint64_t* temp1 = new uint64_t[np * sizeof(uint64_t)];
+//             std::memset(temp1, 0, np * sizeof(uint64_t));
+//             //uint64_t* temp2 = (uint64_t*) malloc(np * sizeof(uint64_t));
+//             uint64_t* temp2 = new uint64_t[np * sizeof(uint64_t)];
+//             std::memset(temp2, 0, np * sizeof(uint64_t));
+//             for (size_t i = 0; i < np; i++) {
+//                 temp1[i] = ((uint64_t)this->pages_dma.get()->ioaddrs[i*2]);
+//                 temp2[i] = ((uint64_t)this->pages_dma.get()->ioaddrs[i*2+1]);
+//             }
+//             cuda_err_chk(cudaMemcpy(pdt.prp1, temp1, np * sizeof(uint64_t), cudaMemcpyHostToDevice));
+//             cuda_err_chk(cudaMemcpy(pdt.prp2, temp2, np * sizeof(uint64_t), cudaMemcpyHostToDevice));
+//
+//             delete temp1;
+//             delete temp2;
+//             pdt.prps = true;
+//         }
+//         else {
+//             this->prp1_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
+//             pdt.prp1 = (uint64_t*) this->prp1_buf.get();
+//             this->prp2_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
+//             pdt.prp2 = (uint64_t*) this->prp2_buf.get();
+//             uint64_t* temp1 = new uint64_t[np * sizeof(uint64_t)];
+//             uint64_t* temp2 = new uint64_t[np * sizeof(uint64_t)];
+//             /*
+//               for (size_t i = 0; i < this->pages_dma.get()->n_ioaddrs; i+=how_many_in_one) {
+//               temp1[i/how_many_in_one] = ((uint64_t)this->pages_dma.get()->ioaddrs[i]);
+//               temp2[i/how_many_in_one] = ((uint64_t)this->prp_list_dma.get()->ioaddrs[i]);
+//               for (size_t j = 0; j < (how_many_in_one-1); j++) {
+//
+//               temp3[(i/how_many_in_one)*uints_per_page + j] = ((uint64_t)this->pages_dma.get()->ioaddrs[i+1+j]);
+//               }
+//               }
+//             */
+//
+//             std::cout << "Done creating PRP\n";
+//             cuda_err_chk(cudaMemcpy(pdt.prp1, temp1, np * sizeof(uint64_t), cudaMemcpyHostToDevice));
+//             cuda_err_chk(cudaMemcpy(pdt.prp2, temp2, np * sizeof(uint64_t), cudaMemcpyHostToDevice));
+//
+//             delete temp1;
+//             delete temp2;
+//             pdt.prps = true;
+//         }
+        // original
+        printf("breakpoint 4 \n");
+        fflush(stdout);
 
 
         pc_buff = createBuffer(sizeof(page_cache_d_t), cudaDevice);

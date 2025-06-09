@@ -1745,6 +1745,7 @@ int setup(int argc, char* argv[])
     //int argc;
     //char *argv[];
 {
+    printf("Start Setup!\n");
     int seed;
 
     layer_size = settings.layer_size;
@@ -1762,7 +1763,7 @@ int setup(int argc, char* argv[])
         h_pc = new page_cache_t(settings.pageSize, settings.maxPageCacheSize/settings.pageSize, settings.cudaDevice, 64);
     }
 
-    printf("Finish Setup!");
+    printf("Finish Setup!\n");
 
     seed = 7;   
     bpnn_initialize(seed);
