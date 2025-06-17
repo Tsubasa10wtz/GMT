@@ -2379,7 +2379,7 @@ void HostCache::buildProfileInfo()
         //profile_info.page_info_d = (PageInfo_d*)createBuffer(sizeof(PageInfo_d), 0).get();
         CUDA_SAFE_CALL(cudaMalloc((void**)&(profile_info.page_info_d), sizeof(PageInfo_d)));
         //CUDA_SAFE_CALL(cudaMalloc((void**)&test, sizeof(PageInfo_d)));
-        fprintf(stderr, "pgae_info_d %p, fetch_count %p\n", profile_info.page_info_d, profile_info.page_info.fetch_count);
+        fprintf(stderr, "page_info_d %p, fetch_count %p\n", profile_info.page_info_d, profile_info.page_info.fetch_count);
         CUDA_SAFE_CALL(cudaMemcpy((void*)profile_info.page_info_d, (void*)&profile_info.page_info, sizeof(PageInfo_d), cudaMemcpyHostToDevice));
         profile_info_vec.push_back(profile_info);
         free(fetch_count_h);

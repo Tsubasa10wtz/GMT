@@ -177,7 +177,7 @@ void bpnn_save();
 BPNN *bpnn_read();
 
 //const char* const sam_ctrls_paths[] = {"/dev/libnvm0"};
-const char* const sam_ctrls_paths[] = {"/dev/libnvm_vmalloc0"};
+// const char* const sam_ctrls_paths[] = {"/dev/libnvm_vmalloc0"};
 Settings settings;
 // std::vector<Controller*> ctrls;
 page_cache_t* h_pc;
@@ -228,7 +228,8 @@ bpnn_layerforward_CUDA(TYPE *input_cuda,
     int tx = threadIdx.x;
     int ty = threadIdx.y;
 
-    int index =  ( hid + 1 ) * HEIGHT * by + ( hid + 1 ) * ty + tx + 1 + ( hid + 1 ) ;  
+    // int index =  ( hid + 1 ) * HEIGHT * by + ( hid + 1 ) * ty + tx + 1 + ( hid + 1 ) ;
+    int index =  ( hid + 1 ) * HEIGHT * by + ( hid + 1 ) * ty + tx + 1  ;
 
     int index_in = HEIGHT * by + ty + 1;
 
@@ -284,78 +285,184 @@ bpnn_layerforward_CUDA(TYPE *input_cuda,
 
 }
 
+// __global__ void
+// bpnn_layerforward_CUDA(array_d_t<TYPE> *input_cuda,
+//         array_d_t<TYPE> *output_hidden_cuda,
+//         array_d_t<TYPE> *input_hidden_cuda,
+//         array_d_t<TYPE> *hidden_partial_sum,
+//         int64_t in,
+//         int64_t hid)
+// {
+//
+//
+//     //int by = blockIdx.y;
+//     int64_t by = blockIdx.x;
+//     int64_t tx = threadIdx.x;
+//     int64_t ty = threadIdx.y;
+//
+//
+//     int64_t index =  ( hid + 1 ) * HEIGHT * by + ( hid + 1 ) * ty + tx + 1 + ( hid + 1 ) ;
+//
+//     // int64_t index =  ( hid + 1 ) * HEIGHT * by + ( hid + 1 ) * ty + tx + 1  ;
+//
+//     int64_t index_in = HEIGHT * by + ty + 1;
+//
+//     __shared__ TYPE input_node[HEIGHT];
+//     __shared__ TYPE weight_matrix[HEIGHT][WIDTH];
+//
+//
+//     printf("checkpoint 1\n");
+//
+//
+//     if ( tx == 0 ) {
+//         //printf("index_in %ld\n", index_in);
+//         input_node[ty] = input_cuda->seq_read(index_in) ;
+//     }
+//
+//     printf("checkpoint 2\n");
+//
+//     __syncthreads();
+//
+//     //weight_matrix[ty][tx] = input_hidden_cuda[index];
+//     weight_matrix[ty][tx] = input_hidden_cuda->seq_read(index);
+//
+//     printf("checkpoint 3\n");
+//
+//     __syncthreads();
+//
+//     weight_matrix[ty][tx] = weight_matrix[ty][tx] * input_node[ty];
+//
+//     __syncthreads();
+//
+//     for ( int i = 1 ; i <= __log2f(HEIGHT) ; i++){
+//
+//         int power_two = __powf(2, i);
+//
+//         if( ty % power_two == 0 )
+//             weight_matrix[ty][tx] = weight_matrix[ty][tx] + weight_matrix[ty + power_two/2][tx];
+//
+//         __syncthreads();
+//
+//     }
+//
+//     //__syncthreads();
+//
+//     input_hidden_cuda->seq_write(index, weight_matrix[ty][tx]);
+//
+//     /*
+//        for ( unsigned int i = 2 ; i <= HEIGHT ; i *= 2){
+//
+//        unsigned int power_two = i - 1;
+//
+//        if( (ty & power_two) == 0 ) {
+//        weight_matrix[ty][tx] = weight_matrix[ty][tx] + weight_matrix[ty + power_two/2][tx];
+//        }
+//
+//        }
+//      */
+//
+//     __syncthreads();
+//
+//     if ( tx == 0 ) {
+//         //hidden_partial_sum[by * hid + ty] = weight_matrix[tx][ty];
+//         hidden_partial_sum->seq_write((uint64_t)by * hid + ty, weight_matrix[tx][ty]);
+//     }
+//
+// }
+
 __global__ void
 bpnn_layerforward_CUDA(array_d_t<TYPE> *input_cuda,
-        array_d_t<TYPE> *output_hidden_cuda,
-        array_d_t<TYPE> *input_hidden_cuda,
-        array_d_t<TYPE> *hidden_partial_sum,
-        int64_t in,
-        int64_t hid) 
+                       array_d_t<TYPE> *output_hidden_cuda,
+                       array_d_t<TYPE> *input_hidden_cuda,
+                       array_d_t<TYPE> *hidden_partial_sum,
+                       int64_t in,
+                       int64_t hid)
 {
-    //int by = blockIdx.y;
-    int64_t by = blockIdx.x;
-    int64_t tx = threadIdx.x;
-    int64_t ty = threadIdx.y;
+    // 当前 block 的 tile 索引（输入 × 隐藏）
+    int64_t block_input_tile  = blockIdx.x;
+    int64_t block_hidden_tile = blockIdx.y;
 
-    int64_t index =  ( hid + 1 ) * HEIGHT * by + ( hid + 1 ) * ty + tx + 1 + ( hid + 1 ) ;  
+    int64_t tx = threadIdx.x;  // 对应隐藏层（列）
+    int64_t ty = threadIdx.y;  // 对应输入层（行）
 
-    int64_t index_in = HEIGHT * by + ty + 1;
+    // 全局输入/隐藏索引
+    int64_t input_idx  = ty + block_input_tile * HEIGHT;
+    int64_t hidden_idx = tx + block_hidden_tile * WIDTH;
+
+    // ✅ 边界检查（避免非法访问）
+    if (input_idx >= in || hidden_idx >= hid)
+        return;
+
+    // 输入数据起始偏移：输入节点从 1 开始（跳过偏置 0）
+    int64_t input_offset = input_idx + 1;
+    int64_t weight_index = (input_offset) * (hid + 1) + (hidden_idx + 1);
 
     __shared__ TYPE input_node[HEIGHT];
     __shared__ TYPE weight_matrix[HEIGHT][WIDTH];
 
+    // if (blockIdx.x == 0 && blockIdx.y == 0 && tx == 0 && ty == 0)
+    //     printf("checkpoint 1\n");
 
-    if ( tx == 0 ) {
-        //printf("index_in %ld\n", index_in);
-        input_node[ty] = input_cuda->seq_read(index_in) ;
+    printf("checkpoint 1: tx = %ld, ty = %ld\n", (int64_t)threadIdx.x, (int64_t)threadIdx.y);
+
+    // ✅ 读取 input_node（每个线程块的输入向量片段）
+    if (tx == 0) {
+        if (input_offset >= input_cuda->n_elems) {
+            printf("ERROR: input_offset %ld >= input_cuda->n_elems %lu\n", input_offset, input_cuda->n_elems);
+            return;
+        }
+        input_node[ty] = input_cuda->seq_read(input_offset);
     }
 
-    __syncthreads();
 
-    //weight_matrix[ty][tx] = input_hidden_cuda[index];
-    weight_matrix[ty][tx] = input_hidden_cuda->seq_read(index);
+    printf("checkpoint 2: tx = %ld, ty = %ld\n", (int64_t)threadIdx.x, (int64_t)threadIdx.y);
 
     __syncthreads();
 
-    weight_matrix[ty][tx] = weight_matrix[ty][tx] * input_node[ty];
+    // ✅ 读取权重
+    if (weight_index >= input_hidden_cuda->n_elems) {
+        printf("ERROR: weight_index %ld >= input_hidden_cuda->n_elems %lu\n", weight_index, input_hidden_cuda->n_elems);
+        return;
+    }
 
-    __syncthreads();   
 
-    for ( int i = 1 ; i <= __log2f(HEIGHT) ; i++){
+    printf("checkpoint 3: tx = %ld, ty = %ld\n", (int64_t)threadIdx.x, (int64_t)threadIdx.y);
 
-        int power_two = __powf(2, i);
 
-        if( ty % power_two == 0 )
-            weight_matrix[ty][tx] = weight_matrix[ty][tx] + weight_matrix[ty + power_two/2][tx];
+    weight_matrix[ty][tx] = input_hidden_cuda->seq_read(weight_index);
 
+    __syncthreads();
+
+    // ✅ 乘法（输入 × 权重）
+    weight_matrix[ty][tx] *= input_node[ty];
+
+    __syncthreads();
+
+    // ✅ 纵向规约（按输入维度 HEIGHT 累加）
+    for (int stride = HEIGHT / 2; stride > 0; stride >>= 1) {
+        if (ty < stride) {
+            weight_matrix[ty][tx] += weight_matrix[ty + stride][tx];
+        }
         __syncthreads();
-
     }
 
-    //__syncthreads();
+    printf("checkpoint 4\n");
 
-    input_hidden_cuda->seq_write(index, weight_matrix[ty][tx]);
 
-    /*
-       for ( unsigned int i = 2 ; i <= HEIGHT ; i *= 2){
 
-       unsigned int power_two = i - 1;
-
-       if( (ty & power_two) == 0 ) {
-       weight_matrix[ty][tx] = weight_matrix[ty][tx] + weight_matrix[ty + power_two/2][tx];
-       }
-
-       }
-     */
-
-    __syncthreads();
-
-    if ( tx == 0 ) {
-        //hidden_partial_sum[by * hid + ty] = weight_matrix[tx][ty];
-        hidden_partial_sum->seq_write((uint64_t)by * hid + ty, weight_matrix[tx][ty]);
+    // ✅ 写回乘积结果
+    if (ty == 0) {
+        uint64_t hps_index = (block_input_tile * (hid)) + hidden_idx;
+        if (hps_index >= hidden_partial_sum->n_elems) {
+            printf("ERROR: hps_index %lu >= hidden_partial_sum->n_elems %lu\n", hps_index, hidden_partial_sum->n_elems);
+            return;
+        }
+        hidden_partial_sum->seq_write(hps_index, weight_matrix[0][tx]);
     }
 
+    printf("checkpoint 5\n");
 }
+
 
 
 __global__
@@ -1396,11 +1503,18 @@ void bpnn_train_cuda(BPNN *net, TYPE *eo, TYPE *eh)
     TYPE *input_weights_one_dim;
     TYPE *hidden_weights_one_dim;
     TYPE *input_weights_prev_one_dim;
-    num_blocks = in / 16;  
-    //dim3  grid( 1 , num_blocks);
-    dim3  grid(num_blocks, 1);
-    dim3  threads(16 , 16);
-    dim3  threads2(4, 4);
+    // num_blocks = in / HEIGHT;
+    // //dim3  grid( 1 , num_blocks);
+    // dim3  grid(num_blocks, hid/WIDTH);
+    // dim3  threads(WIDTH , HEIGHT);
+    // dim3  threads2(4, 4);
+
+    int num_input_tiles  = (in  + HEIGHT - 1) / HEIGHT;
+    int num_hidden_tiles = (hid + WIDTH  - 1) / WIDTH;
+
+    // dim3 grid(num_input_tiles, num_hidden_tiles);
+    dim3 grid(1, 1);
+    dim3 threads(WIDTH, HEIGHT);
     
     void* hidden_units_d, *input_weights_one_dim_d, *output_units_d, *hidden_weights_one_dim_d;
     void* buffers[2];
@@ -1444,6 +1558,11 @@ for (int iter = 0; iter < settings.iter; iter++)
 
     if (settings.memalloc == BAFS_DIRECT) {
 #if USE_HOST_CACHE
+        printf("HOST: calling kernel...\n");
+        printf("input ptr = %p\n", net->h_input_units_array[iter]->d_array_ptr);
+        printf("weights ptr = %p\n", net->h_input_weights_array->d_array_ptr);
+        printf("output ptr = %p\n", net->h_hidden_partial_sum_array->d_array_ptr);
+        fflush(stdout);
         bpnn_layerforward_CUDA<<< grid, threads, 0, stream_mngr->kernel_stream >>>(
                 net->h_input_units_array[iter]->d_array_ptr,
                 net->h_output_hidden_units_array->d_array_ptr,
@@ -1668,8 +1787,8 @@ for (int iter = 0; iter < settings.iter; iter++)
 
 }
 #if USE_HOST_CACHE
-    h_pc->flush_cache();
-    flushHostCache();
+    // h_pc->flush_cache();
+    // flushHostCache();
     cudaDeviceSynchronize();
 
 #else

@@ -692,124 +692,125 @@ uint64_t get_backing_ctrl_(const size_t page_offset, const uint64_t n_ctrls, con
 
 }
 
-__global__
-void __flush(page_cache_d_t* pc) {
-    uint64_t page = threadIdx.x + blockIdx.x * blockDim.x;
-
-    if (page < pc->n_pages) {
-        uint64_t previous_global_address = pc->cache_pages[page].page_translation;
-        //uint8_t previous_range = this->cache_pages[page].range_id;
-        uint64_t previous_range = previous_global_address & pc->n_ranges_mask;
-        uint64_t previous_address = previous_global_address >> pc->n_ranges_bits;
-        //uint32_t new_state = BUSY;
-
-        uint32_t expected_state = pc->ranges[previous_range][previous_address].state.load(simt::memory_order_relaxed);
-
-        uint32_t d = expected_state & DIRTY;
-        uint32_t smid = get_smid();
-        if (d) {
-
-            uint64_t ctrl = get_backing_ctrl_(previous_address, pc->n_ctrls, pc->ranges_dists[previous_range]);
-            //uint64_t get_backing_page(const uint64_t page_start, const size_t page_offset, const uint64_t n_ctrls, const data_dist_t dist) {
-            uint64_t index = get_backing_page_(pc->ranges_page_starts[previous_range], previous_address, pc->n_ctrls, pc->ranges_dists[previous_range]);
-            // //printf("Eviciting range_id: %llu\tpage_id: %llu\tctrl: %llx\tindex: %llu\n",
-            //        (unsigned long long) previous_range, (unsigned long long)previous_address,
-            //        (unsigned long long) ctrl, (unsigned long long) index);
-            if (ctrl == ALL_CTRLS) {
-                for (ctrl = 0; ctrl < pc->n_ctrls; ctrl++) {
-                    Controller* c = pc->d_ctrls[ctrl];
-                    uint32_t queue = smid % (c->n_qps);
-                    
-                    // Chia-Hao: 070423
-                    if ((expected_state & CACHED_BY_HOST) != 0) {
-                        //printf("page[%u][%u] cached by host\n", previous_range, previous_address);
-                    }
-
-                    pc->evict_cnt->fetch_add(1, simt::memory_order_relaxed);
-                    write_data(pc, (c->d_qps)+queue, (index*pc->n_blocks_per_page), pc->n_blocks_per_page, page);
-                    c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
-                }
-            }
-            else {
-
-                Controller* c = pc->d_ctrls[ctrl];
-                uint32_t queue = smid % (c->n_qps);
-
-                //index = ranges_page_starts[previous_range] + previous_address;
-
-                pc->evict_cnt->fetch_add(1, simt::memory_order_relaxed);
-
-                write_data(pc, (c->d_qps)+queue, (index*pc->n_blocks_per_page), pc->n_blocks_per_page, page);
-                c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
-            }
-
-            pc->ranges[previous_range][previous_address].state.fetch_and(~DIRTY);
-
-        }
-    }
-}
+// __global__
+// void __flush(page_cache_d_t* pc) {
+//     uint64_t page = threadIdx.x + blockIdx.x * blockDim.x;
+//
+//     if (page < pc->n_pages) {
+//         uint64_t previous_global_address = pc->cache_pages[page].page_translation;
+//         //uint8_t previous_range = this->cache_pages[page].range_id;
+//         uint64_t previous_range = previous_global_address & pc->n_ranges_mask;
+//         uint64_t previous_address = previous_global_address >> pc->n_ranges_bits;
+//         //uint32_t new_state = BUSY;
+//
+//         uint32_t expected_state = pc->ranges[previous_range][previous_address].state.load(simt::memory_order_relaxed);
+//
+//         uint32_t d = expected_state & DIRTY;
+//         uint32_t smid = get_smid();
+//         if (d) {
+//
+//             uint64_t ctrl = get_backing_ctrl_(previous_address, pc->n_ctrls, pc->ranges_dists[previous_range]);
+//             //uint64_t get_backing_page(const uint64_t page_start, const size_t page_offset, const uint64_t n_ctrls, const data_dist_t dist) {
+//             uint64_t index = get_backing_page_(pc->ranges_page_starts[previous_range], previous_address, pc->n_ctrls, pc->ranges_dists[previous_range]);
+//             // //printf("Eviciting range_id: %llu\tpage_id: %llu\tctrl: %llx\tindex: %llu\n",
+//             //        (unsigned long long) previous_range, (unsigned long long)previous_address,
+//             //        (unsigned long long) ctrl, (unsigned long long) index);
+//             if (ctrl == ALL_CTRLS) {
+//                 for (ctrl = 0; ctrl < pc->n_ctrls; ctrl++) {
+//                     Controller* c = pc->d_ctrls[ctrl];
+//                     uint32_t queue = smid % (c->n_qps);
+//
+//                     // Chia-Hao: 070423
+//                     if ((expected_state & CACHED_BY_HOST) != 0) {
+//                         //printf("page[%u][%u] cached by host\n", previous_range, previous_address);
+//                     }
+//
+//                     pc->evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//                     write_data(pc, (c->d_qps)+queue, (index*pc->n_blocks_per_page), pc->n_blocks_per_page, page);
+//                     c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                 }
+//             }
+//             else {
+//
+//                 Controller* c = pc->d_ctrls[ctrl];
+//                 uint32_t queue = smid % (c->n_qps);
+//
+//                 //index = ranges_page_starts[previous_range] + previous_address;
+//
+//                 pc->evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//
+//                 write_data(pc, (c->d_qps)+queue, (index*pc->n_blocks_per_page), pc->n_blocks_per_page, page);
+//                 c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//             }
+//
+//             pc->ranges[previous_range][previous_address].state.fetch_and(~DIRTY);
+//
+//         }
+//     }
+// }
 
 // CHIA-HAO
-//#if USE_HOST_CACHE
-__global__
-void __flush_to_hc(page_cache_d_t* pc) {
-    uint64_t page = threadIdx.x + blockIdx.x * blockDim.x;
+// #if USE_HOST_CACHE
+//  __global__
+//  void __flush_to_hc(page_cache_d_t* pc) {
+//      uint64_t page = threadIdx.x + blockIdx.x * blockDim.x;
+//
+//      if (page < pc->n_pages) {
+//          uint32_t previous_global_address = pc->cache_pages[page].page_translation;
+//          //uint8_t previous_range = this->cache_pages[page].range_id;
+//          uint32_t previous_range = previous_global_address & pc->n_ranges_mask;
+//          uint32_t previous_address = previous_global_address >> pc->n_ranges_bits;
+//          //uint32_t new_state = BUSY;
+//
+//          uint32_t expected_state = pc->ranges[previous_range][previous_address].state.load(simt::memory_order_relaxed);
+//
+//          uint32_t d = expected_state & DIRTY;
+//          uint32_t smid = get_smid();
+//          if (d) {
+//
+//              uint64_t ctrl = get_backing_ctrl_(previous_address, pc->n_ctrls, pc->ranges_dists[previous_range]);
+//              //uint64_t get_backing_page(const uint64_t page_start, const size_t page_offset, const uint64_t n_ctrls, const data_dist_t dist) {
+//              uint64_t index = get_backing_page_(pc->ranges_page_starts[previous_range], previous_address, pc->n_ctrls, pc->ranges_dists[previous_range]);
+//              // //printf("Eviciting range_id: %llu\tpage_id: %llu\tctrl: %llx\tindex: %llu\n",
+//              //        (unsigned long long) previous_range, (unsigned long long)previous_address,
+//              //        (unsigned long long) ctrl, (unsigned long long) index);
+//              if (ctrl == ALL_CTRLS) {
+//                  for (ctrl = 0; ctrl < pc->n_ctrls; ctrl++) {
+//                      Controller* c = pc->d_ctrls[ctrl];
+//                      uint32_t queue = smid % (c->n_qps);
+//
+//                      pc->evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//                      write_data(pc, (c->d_qps)+queue, (index*pc->n_blocks_per_page), pc->n_blocks_per_page, page);
+//                      c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                      //accessHostCache((void*)pc->get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(pc->ranges[previous_range][previous_address].bid));
+//
+//                      //int bid = 0;
+//                      //accessHostCache((void*)pc->get_cache_page_addr(page), GPU_RW_FETCH_FROM_HOST, &bid);
+//                      //pc->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
+//                  }
+//              }
+//              else {
+//
+//                  Controller* c = pc->d_ctrls[ctrl];
+//                  uint32_t queue = smid % (c->n_qps);
+//
+//                  //index = ranges_page_starts[previous_range] + previous_address;
+//
+//                  pc->evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//                  write_data(pc, (c->d_qps)+queue, (index*pc->n_blocks_per_page), pc->n_blocks_per_page, page);
+//
+//                  c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                  //accessHostCache((void*)pc->get_cache_page_addr(page), ((((uint64_t)previous_range)<<32) | (uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(pc->ranges[previous_range][previous_address].bid));
+//                  //pc->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
+//              }
+//
+//              pc->ranges[previous_range][previous_address].state.fetch_and(~DIRTY);
+//
+//          }
+//      }
+//  }
+// #endif
 
-    if (page < pc->n_pages) {
-        uint32_t previous_global_address = pc->cache_pages[page].page_translation;
-        //uint8_t previous_range = this->cache_pages[page].range_id;
-        uint32_t previous_range = previous_global_address & pc->n_ranges_mask;
-        uint32_t previous_address = previous_global_address >> pc->n_ranges_bits;
-        //uint32_t new_state = BUSY;
-
-        uint32_t expected_state = pc->ranges[previous_range][previous_address].state.load(simt::memory_order_relaxed);
-
-        uint32_t d = expected_state & DIRTY;
-        uint32_t smid = get_smid();
-        if (d) {
-
-            uint64_t ctrl = get_backing_ctrl_(previous_address, pc->n_ctrls, pc->ranges_dists[previous_range]);
-            //uint64_t get_backing_page(const uint64_t page_start, const size_t page_offset, const uint64_t n_ctrls, const data_dist_t dist) {
-            uint64_t index = get_backing_page_(pc->ranges_page_starts[previous_range], previous_address, pc->n_ctrls, pc->ranges_dists[previous_range]);
-            // //printf("Eviciting range_id: %llu\tpage_id: %llu\tctrl: %llx\tindex: %llu\n",
-            //        (unsigned long long) previous_range, (unsigned long long)previous_address,
-            //        (unsigned long long) ctrl, (unsigned long long) index);
-            if (ctrl == ALL_CTRLS) {
-                for (ctrl = 0; ctrl < pc->n_ctrls; ctrl++) {
-                    Controller* c = pc->d_ctrls[ctrl];
-                    uint32_t queue = smid % (c->n_qps);
-    
-                    pc->evict_cnt->fetch_add(1, simt::memory_order_relaxed);
-                    write_data(pc, (c->d_qps)+queue, (index*pc->n_blocks_per_page), pc->n_blocks_per_page, page);
-                    c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
-                    //accessHostCache((void*)pc->get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(pc->ranges[previous_range][previous_address].bid));
-
-                    //int bid = 0;
-                    //accessHostCache((void*)pc->get_cache_page_addr(page), GPU_RW_FETCH_FROM_HOST, &bid);
-                    //pc->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
-                }
-            }
-            else {
-
-                Controller* c = pc->d_ctrls[ctrl];
-                uint32_t queue = smid % (c->n_qps);
-
-                //index = ranges_page_starts[previous_range] + previous_address;
-
-                pc->evict_cnt->fetch_add(1, simt::memory_order_relaxed);
-                write_data(pc, (c->d_qps)+queue, (index*pc->n_blocks_per_page), pc->n_blocks_per_page, page);
-                
-                c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
-                //accessHostCache((void*)pc->get_cache_page_addr(page), ((((uint64_t)previous_range)<<32) | (uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(pc->ranges[previous_range][previous_address].bid));
-                //pc->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
-            }
-
-            pc->ranges[previous_range][previous_address].state.fetch_and(~DIRTY);
-
-        }
-    }
-}
-//#endif
 
 struct page_cache_t {
 
@@ -905,22 +906,22 @@ struct page_cache_t {
     }
 
 
-    void flush_cache() {
-        size_t threads = 64;
-        size_t n_blocks = (pdt.n_pages + threads - 1) / threads;
-
-        __flush<<<n_blocks, threads>>>(d_pc_ptr);
-
-
-    }
+    // void flush_cache() {
+    //     size_t threads = 64;
+    //     size_t n_blocks = (pdt.n_pages + threads - 1) / threads;
+    //
+    //     __flush<<<n_blocks, threads>>>(d_pc_ptr);
+    //
+    //
+    // }
     
-    void flush_cache_to_hc(cudaStream_t *kernelStream) {
-        size_t threads = 64;
-        size_t n_blocks = (pdt.n_pages + threads - 1) / threads;
-        //fprintf(stderr, "%s\n", __func__);
-        __flush_to_hc<<<n_blocks, threads, 0, *kernelStream>>>(d_pc_ptr);
-        //__flush<<<n_blocks, threads, 0, *kernelStream>>>(d_pc_ptr);
-    }
+    // void flush_cache_to_hc(cudaStream_t *kernelStream) {
+    //     size_t threads = 64;
+    //     size_t n_blocks = (pdt.n_pages + threads - 1) / threads;
+    //     //fprintf(stderr, "%s\n", __func__);
+    //     __flush_to_hc<<<n_blocks, threads, 0, *kernelStream>>>(d_pc_ptr);
+    //     //__flush<<<n_blocks, threads, 0, *kernelStream>>>(d_pc_ptr);
+    // }
 
 
     template <typename T>
@@ -1208,8 +1209,8 @@ struct page_cache_t {
         pdt.page_size_minus_1 = ps - 1;
         pdt.n_pages = np;
         pdt.n_pages_minus_1 = np - 1;
-        d_ctrls_buff = createBuffer(pdt.n_ctrls * sizeof(Controller*), cudaDevice);
-        pdt.d_ctrls = (Controller**) d_ctrls_buff.get();
+        // d_ctrls_buff = createBuffer(pdt.n_ctrls * sizeof(Controller*), cudaDevice);
+        // pdt.d_ctrls = (Controller**) d_ctrls_buff.get();
         pdt.n_cachelines_for_states = np/STATES_PER_CACHELINE;
         //pdt.rrpv_increment = 0;
         //n_ctrls = ctrls.size();
@@ -1313,6 +1314,12 @@ struct page_cache_t {
         h_ranges_dists = new data_dist_t[max_range];
         printf("breakpoint 3.3 \n");
         fflush(stdout);
+
+        // tzwang
+        uint64_t cache_size = ps * np;
+        void* host_cache = nullptr;
+        cudaHostAlloc(&host_cache, cache_size, cudaHostAllocMapped);
+        pdt.base_addr = reinterpret_cast<uint8_t*>(host_cache);
 
         // original
         // uint64_t cache_size = ps*np;
@@ -1703,6 +1710,7 @@ template <typename T>
 __forceinline__
 __device__
 uint64_t range_d_t<T>::get_cache_page_addr(const uint32_t page_trans) const {
+    printf("checkpoint 1.3.1\n");
     return ((uint64_t)((cache.base_addr+(page_trans * cache.page_size))));
 }
 
@@ -1796,33 +1804,56 @@ uint64_t range_d_t<T>::acquire_page(const size_t pg, const uint32_t count, const
                     ctrl = cache.ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (cache.n_ctrls);
                 //ctrl = ctrl_;
                 uint64_t b_page = get_backing_page(index);
-                Controller* c = cache.d_ctrls[ctrl];
-                c->access_counter.fetch_add(1, simt::memory_order_relaxed);
+                // Controller* c = cache.d_ctrls[ctrl];
+                // c->access_counter.fetch_add(1, simt::memory_order_relaxed);
                 //read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
+// tzwang：only consider there's host cache
 #if USE_HOST_CACHE
                 if ((st_new & CACHED_BY_HOST) != 0x0) {
-                    //printf("access host cache %lu: %u\n", ((uint64_t)range_id<<32)|index, st_new);
-                    int ret = accessHostCache((void*)get_cache_page_addr(page_trans), ((range_id<<32)|index)/*key*/, GPU_RW_FETCH_FROM_HOST, &(pages[index].bid), false);
-                    if (ret != HOST_CACHE_SUCCEEDED) {
-                        // TODO
-                        //printf("access host cache failed... %lu\n", ((uint64_t)range_id<<32)|index);
-                        pages[index].state.fetch_xor(CACHED_BY_HOST, simt::memory_order_relaxed);
-                        read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
-                        read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
-                    }
-                    //else printf("access host cache succed... %lu\n", ((uint64_t)range_id<<32)|index);
+                    int ret = accessHostCache((void*)get_cache_page_addr(page_trans),
+                                               ((range_id << 32) | index), /* key */
+                                               GPU_RW_FETCH_FROM_HOST,
+                                               &(pages[index].bid),
+                                               false);
 
-                    // CHIA-HAO: regardless this fetching is successful or not, we will view tier-2 available space becomes more
+                    if (ret != HOST_CACHE_SUCCEEDED) {
+                        pages[index].state.fetch_xor(CACHED_BY_HOST, simt::memory_order_relaxed);
+                        printf("ERROR: accessHostCache failed for page %lu. SSD backend disabled.\n", ((uint64_t)range_id << 32) | index);
+                        asm("trap;");  // 或者 return 错误码，根据你的设计逻辑
+                    }
+
+                    // CHIA-HAO: tier-2 cache usage下降
                     cache.tier2_occupied_count->fetch_sub(1, simt::memory_order_acquire);
                 }
                 else {
-#endif
-                    //printf("fetch data from ssd (key %lu)\n", (range_id<<32)|index);
-                    read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
-                    read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
-                    //printf("fetch data from ssd (key %lu) done\n", (range_id<<32)|index);
-#if USE_HOST_CACHE
+                    printf("ERROR: Page %lu not marked CACHED_BY_HOST, and SSD backend is disabled.\n", ((uint64_t)range_id << 32) | index);
+                    asm("trap;");
                 }
+#endif
+// #if USE_HOST_CACHE
+//                 if ((st_new & CACHED_BY_HOST) != 0x0) {
+//                     //printf("access host cache %lu: %u\n", ((uint64_t)range_id<<32)|index, st_new);
+//                     int ret = accessHostCache((void*)get_cache_page_addr(page_trans), ((range_id<<32)|index)/*key*/, GPU_RW_FETCH_FROM_HOST, &(pages[index].bid), false);
+//                     if (ret != HOST_CACHE_SUCCEEDED) {
+//                         // TODO
+//                         //printf("access host cache failed... %lu\n", ((uint64_t)range_id<<32)|index);
+//                         pages[index].state.fetch_xor(CACHED_BY_HOST, simt::memory_order_relaxed);
+//                         read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
+//                         read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
+//                     }
+//                     //else printf("access host cache succed... %lu\n", ((uint64_t)range_id<<32)|index);
+//
+//                     // CHIA-HAO: regardless this fetching is successful or not, we will view tier-2 available space becomes more
+//                     cache.tier2_occupied_count->fetch_sub(1, simt::memory_order_acquire);
+//                 }
+//                 else {
+// #endif
+//                     //printf("fetch data from ssd (key %lu)\n", (range_id<<32)|index);
+//                     read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
+//                     read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
+//                     //printf("fetch data from ssd (key %lu) done\n", (range_id<<32)|index);
+#if USE_HOST_CACHE
+                // }
 #endif
                 pages[index].offset = page_trans;
                 miss_cnt.fetch_add(count, simt::memory_order_relaxed);
@@ -1975,8 +2006,8 @@ uint64_t range_d_t<T>::find_page(const size_t pg, const uint32_t count, const bo
                 if (ctrl == ALL_CTRLS)
                     ctrl = cache.ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (cache.n_ctrls);
                 uint64_t b_page = get_backing_page(index);
-                Controller* c = cache.d_ctrls[ctrl];
-                c->access_counter.fetch_add(1, simt::memory_order_relaxed);
+                // Controller* c = cache.d_ctrls[ctrl];
+                // c->access_counter.fetch_add(1, simt::memory_order_relaxed);
                 
                 uint64_t simul_reqs = 0;
                 if ((st_new & CACHED_BY_HOST) != 0x0 && count == 32) {
@@ -1990,20 +2021,34 @@ uint64_t range_d_t<T>::find_page(const size_t pg, const uint32_t count, const bo
                 bool is_cached_page_dirty = false;
                 //printf("simultaneous cnt %lu for page %lu\n", simultaneous_cnt.load(), (range_id<<32|index));
                 //if ((st_new & CACHED_BY_HOST) != 0x0 && !(count == 32 && range_id == 0)) {
+                // tzwang
                 if ((st_new & CACHED_BY_HOST) != 0x0 && zc_cond(count, simul_reqs)) {
-                //if ((st_new & CACHED_BY_HOST) != 0x0) {
-                    hc_ret = accessHostCache((void*)get_cache_page_addr(page_trans), ((range_id<<32)|index)/*key*/, GPU_RW_FETCH_FROM_HOST, &(pages[index].bid), false, &is_cached_page_dirty);
+                    hc_ret = accessHostCache((void*)get_cache_page_addr(page_trans),
+                                             ((range_id<<32)|index), GPU_RW_FETCH_FROM_HOST,
+                                             &(pages[index].bid), false, &is_cached_page_dirty);
+
                     if (hc_ret != HOST_CACHE_SUCCEEDED) {
-                        pages[index].state.fetch_xor(CACHED_BY_HOST, simt::memory_order_relaxed);
-                        read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
-                        read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
+                        printf("ERROR: Page not in Host Cache and SSD backend disabled. Page: %lu\n", ((range_id<<32)|index));
+                        // asm("trap;"); // 或者 return error_code;
                     }
+                } else if ((st_new & CACHED_BY_HOST) == 0x0) {
+                    printf("ERROR: Page not found in Host Cache (CACHED_BY_HOST==0). Page: %lu\n", ((range_id<<32)|index));
+                    // asm("trap;");
                 }
-                else if ((st_new & CACHED_BY_HOST) == 0x0) {
-                    read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
-                    //printf("read data from find_page: %lu\n", (range_id<<32)|index);
-                    read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
-                }
+                // if ((st_new & CACHED_BY_HOST) != 0x0 && zc_cond(count, simul_reqs)) {
+                // //if ((st_new & CACHED_BY_HOST) != 0x0) {
+                //     hc_ret = accessHostCache((void*)get_cache_page_addr(page_trans), ((range_id<<32)|index)/*key*/, GPU_RW_FETCH_FROM_HOST, &(pages[index].bid), false, &is_cached_page_dirty);
+                //     if (hc_ret != HOST_CACHE_SUCCEEDED) {
+                //         pages[index].state.fetch_xor(CACHED_BY_HOST, simt::memory_order_relaxed);
+                //         read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
+                //         read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
+                //     }
+                // }
+                // else if ((st_new & CACHED_BY_HOST) == 0x0) {
+                //     read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
+                //     //printf("read data from find_page: %lu\n", (range_id<<32)|index);
+                //     read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
+                // }
               
                 
                 pages[index].offset = page_trans;
@@ -2127,8 +2172,8 @@ uint64_t range_d_t<T>::find_page_without_data_transfer(const size_t pg, const ui
                 if (ctrl == ALL_CTRLS)
                     ctrl = cache.ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (cache.n_ctrls);
                 uint64_t b_page = get_backing_page(index);
-                Controller* c = cache.d_ctrls[ctrl];
-                c->access_counter.fetch_add(1, simt::memory_order_relaxed);
+                // Controller* c = cache.d_ctrls[ctrl];
+                // c->access_counter.fetch_add(1, simt::memory_order_relaxed);
                 
                 uint64_t simul_reqs = 0x1 << 31;
 
@@ -2200,9 +2245,9 @@ void range_d_t<T>::get_page_from_ssd(const size_t pg, const bool write, const ui
 {
     uint64_t index = pg;
     uint64_t b_page = get_backing_page(index);
-    Controller* c = cache.d_ctrls[ctrl];
-    read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
-    read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
+    // Controller* c = cache.d_ctrls[ctrl];
+    // read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
+    // read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
 }
 
 // Chia-Hao
@@ -2213,9 +2258,9 @@ void range_d_t<T>::write_page_to_ssd(const size_t pg, const bool write, const ui
 {
     uint64_t index = pg;
     uint64_t b_page = get_backing_page(index);
-    Controller* c = cache.d_ctrls[ctrl];
-    write_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
-    c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+    // Controller* c = cache.d_ctrls[ctrl];
+    // write_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
+    // c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
 }
 
 
@@ -2281,7 +2326,7 @@ struct array_d_t {
             if (lane == leader) {
                 page_cache_d_t* pc = &(r_->cache);
                 ctrl = pc->ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (pc->n_ctrls);
-                queue = get_smid() % (pc->d_ctrls[ctrl]->n_qps);
+                // queue = get_smid() % (pc->d_ctrls[ctrl]->n_qps);
             }
             ctrl = __shfl_sync(mask, ctrl, leader);
             queue = __shfl_sync(mask, queue, leader);
@@ -2494,80 +2539,86 @@ struct array_d_t {
 
 
 
-    __forceinline__
-    __device__
-    void coalesce_page_2(const uint32_t lane, const uint32_t mask, const int64_t r, const uint64_t page, const uint64_t gaddr, const bool write,
-                       uint32_t& eq_mask, int& master, uint32_t& count, uint64_t& base_master) const {
-        uint32_t ctrl;
-        uint32_t queue;
-        uint32_t leader = __ffs(mask) - 1;
-        auto r_ = d_ranges+r;
-        if (lane == leader) {
-            page_cache_d_t* pc = &(r_->cache);
-            ctrl = 0;//pc->ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (pc->n_ctrls);
-            queue = get_smid() % (pc->d_ctrls[0]->n_qps);
-        }
-
-        ctrl = 0; //__shfl_sync(mask, ctrl, leader);
-        queue = __shfl_sync(mask, queue, leader);
-
-        uint32_t active_cnt = __popc(mask);
-        eq_mask = __match_any_sync(mask, gaddr);
-        eq_mask &= __match_any_sync(mask, (uint64_t)this);
-        master = __ffs(eq_mask) - 1;
-
-        uint32_t dirty = __any_sync(eq_mask, write);
-
-        uint64_t base;
-        count = __popc(eq_mask);
-        
-
-        uint32_t st = r_->pages[page].state.load(simt::memory_order_acquire); 
-        st = __shfl_sync(eq_mask, st, master);
-        auto range_id = r_->range_id;
-        
-        uint32_t scheme = 0;
-        // check if the page valid and get the cache address if swap-in is needed
-        if (master == lane) {
-            //printf("find page for %lu (warp id %u, lane %u, master %u, logical tid %u, st %x, count %u)\n", (r_->range_id<<32)|page, warp_id(), lane, master, blockIdx.x*blockDim.x+threadIdx.x, st, count);
-            base = r_->find_page_without_data_transfer(page, count, dirty, ctrl, queue, scheme);
-            //base = r_->acquire_page(page, count, dirty, ctrl, queue);
-            base_master = base;
-        }
-        // sync in the warp
-        base_master = __shfl_sync(eq_mask, base_master, master);
-        scheme = __shfl_sync(eq_mask, scheme, master);
-        
-        ///*
-        if (scheme == ZERO_COPY) {
-            zero_copy(r, page, eq_mask, lane, master, base_master, dirty, queue);
-        }
-        else if (scheme == READ_FROM_SSD) {
-            if (master == lane) {     
-                Controller* c = (r_->cache).d_ctrls[ctrl];
-                uint64_t b_page = r_->get_backing_page(page);
-                read_data(&(r_->cache), (c->d_qps)+queue, ((b_page)*r_->cache.n_blocks_per_page), r_->cache.n_blocks_per_page, base_master);
-                //pages[index].state.fetch_xor(DISABLE_BUSY_ENABLE_VALID, simt::memory_order_release);
-                r_->update_page_state(page, DISABLE_BUSY_ENABLE_VALID);
-            }
-            __syncwarp(eq_mask);
-        }
-    }
+    // __forceinline__
+    // __device__
+    // void coalesce_page_2(const uint32_t lane, const uint32_t mask, const int64_t r, const uint64_t page, const uint64_t gaddr, const bool write,
+    //                    uint32_t& eq_mask, int& master, uint32_t& count, uint64_t& base_master) const {
+    //     uint32_t ctrl;
+    //     uint32_t queue;
+    //     uint32_t leader = __ffs(mask) - 1;
+    //     auto r_ = d_ranges+r;
+    //     if (lane == leader) {
+    //         page_cache_d_t* pc = &(r_->cache);
+    //         ctrl = 0;//pc->ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (pc->n_ctrls);
+    //         queue = get_smid() % (pc->d_ctrls[0]->n_qps);
+    //     }
+    //
+    //     ctrl = 0; //__shfl_sync(mask, ctrl, leader);
+    //     queue = __shfl_sync(mask, queue, leader);
+    //
+    //     uint32_t active_cnt = __popc(mask);
+    //     eq_mask = __match_any_sync(mask, gaddr);
+    //     eq_mask &= __match_any_sync(mask, (uint64_t)this);
+    //     master = __ffs(eq_mask) - 1;
+    //
+    //     uint32_t dirty = __any_sync(eq_mask, write);
+    //
+    //     uint64_t base;
+    //     count = __popc(eq_mask);
+    //
+    //
+    //     uint32_t st = r_->pages[page].state.load(simt::memory_order_acquire);
+    //     st = __shfl_sync(eq_mask, st, master);
+    //     auto range_id = r_->range_id;
+    //
+    //     uint32_t scheme = 0;
+    //     // check if the page valid and get the cache address if swap-in is needed
+    //     if (master == lane) {
+    //         //printf("find page for %lu (warp id %u, lane %u, master %u, logical tid %u, st %x, count %u)\n", (r_->range_id<<32)|page, warp_id(), lane, master, blockIdx.x*blockDim.x+threadIdx.x, st, count);
+    //         base = r_->find_page_without_data_transfer(page, count, dirty, ctrl, queue, scheme);
+    //         //base = r_->acquire_page(page, count, dirty, ctrl, queue);
+    //         base_master = base;
+    //     }
+    //     // sync in the warp
+    //     base_master = __shfl_sync(eq_mask, base_master, master);
+    //     scheme = __shfl_sync(eq_mask, scheme, master);
+    //
+    //     ///*
+    //     if (scheme == ZERO_COPY) {
+    //         zero_copy(r, page, eq_mask, lane, master, base_master, dirty, queue);
+    //     }
+    //     else if (scheme == READ_FROM_SSD) {
+    //         if (master == lane) {
+    //             Controller* c = (r_->cache).d_ctrls[ctrl];
+    //             uint64_t b_page = r_->get_backing_page(page);
+    //             read_data(&(r_->cache), (c->d_qps)+queue, ((b_page)*r_->cache.n_blocks_per_page), r_->cache.n_blocks_per_page, base_master);
+    //             //pages[index].state.fetch_xor(DISABLE_BUSY_ENABLE_VALID, simt::memory_order_release);
+    //             r_->update_page_state(page, DISABLE_BUSY_ENABLE_VALID);
+    //         }
+    //         __syncwarp(eq_mask);
+    //     }
+    // }
 
 
     __forceinline__
     __device__
     void coalesce_page(const uint32_t lane, const uint32_t mask, const int64_t r, const uint64_t page, const uint64_t gaddr, const bool write,
                        uint32_t& eq_mask, int& master, uint32_t& count, uint64_t& base_master) const {
+        printf("checkpoint 1.2.0\n");
         uint32_t ctrl;
         uint32_t queue;
         uint32_t leader = __ffs(mask) - 1;
         auto r_ = d_ranges+r;
         if (lane == leader) {
+            printf("checkpoint 1.2.0.0\n");
             page_cache_d_t* pc = &(r_->cache);
+            printf("[DEBUG] pc ptr = %p\n", pc);
+            printf("checkpoint 1.2.0.1\n");
             ctrl = 0;//pc->ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (pc->n_ctrls);
-            queue = get_smid() % (pc->d_ctrls[0]->n_qps);
+            // queue = get_smid() % (pc->d_ctrls[0]->n_qps);
         }
+
+        printf("checkpoint 1.2.0.2\n");
 
         ctrl = 0; //__shfl_sync(mask, ctrl, leader);
         queue = __shfl_sync(mask, queue, leader);
@@ -2577,6 +2628,8 @@ struct array_d_t {
         eq_mask = __match_any_sync(mask, gaddr);
         eq_mask &= __match_any_sync(mask, (uint64_t)this);
         master = __ffs(eq_mask) - 1;
+
+        printf("checkpoint 1.2.0.3\n");
 
         uint32_t dirty = __any_sync(eq_mask, write);
 
@@ -2589,7 +2642,7 @@ struct array_d_t {
 #if USE_HOST_CACHE && LOGGING_RT_INFO 
         if (master == lane) loggingRtInfo((uint64_t)count);
 #endif
-        
+        printf("checkpoint 1.2.1\n");
 
 #if USE_HOST_CACHE && ACCESS_HOST_CACHE_WITH_ZERO_COPY
         uint32_t st = r_->pages[page].state.load(simt::memory_order_acquire); 
@@ -2607,10 +2660,10 @@ struct array_d_t {
             // check if the page valid and get the cache address if swap-in is needed
             if (master == lane) {
                 //printf("find page for %lu (warp id %u, lane %u, master %u, logical tid %u, st %x, count %u)\n", (r_->range_id<<32)|page, warp_id(), lane, master, blockIdx.x*blockDim.x+threadIdx.x, st, count);
-                
+                printf("checkpoint 1.2.2\n");
                 base = r_->find_page(page, count, dirty, ctrl, queue, nv_nb_and_cached_by_hc);
                 //base = r_->acquire_page(page, count, dirty, ctrl, queue);
-                
+                printf("checkpoint 1.2.3\n");
                 //if (nv_nb_and_cached_by_hc) {
                 //    printf("zero copy nv nb: [%lu][%lu] (state %x)\n", range_id, page, r_->pages[page].state);
                 //}
@@ -2621,18 +2674,23 @@ struct array_d_t {
                 
                 base_master = base;
             }
+            printf("checkpoint 1.2.4\n");
             // sync in the warp
             base_master = __shfl_sync(eq_mask, base_master, master);
             nv_nb_and_cached_by_hc = __shfl_sync(eq_mask, nv_nb_and_cached_by_hc, master);
             // if not valid and not busy, start copying from the host using zero-copy
-            
+            printf("checkpoint 1.2.5\n");
+
             //int ret = (nv_nb_and_cached_by_hc) ? zero_copy(r, page, eq_mask, lane, master, base_master, dirty, queue) : 1;
             if (!nv_nb_and_cached_by_hc) {
             //if (false) {
+                printf("checkpoint 1.2.6-1\n");
                 return;
             }//* reconvergence point? even if they dont exec the above code... */
             else {
+                printf("checkpoint 1.2.6-2\n");
                 zero_copy(r, page, eq_mask, lane, master, base_master, dirty, queue);
+                printf("checkpoint 1.2.6-3\n");
                 //zero_copy_test(r, page, eq_mask, lane, master, base_master, dirty, queue);
                 //assert(false);
                 return;
@@ -2643,6 +2701,7 @@ struct array_d_t {
 #endif
         ///*
             if (master == lane) {
+                printf("checkpoint 1.2.7\n");
                 //std::pair<uint64_t, bool> base_memcpyflag;
                 //printf("++tid: %llu\tbase: %p  page:%llu (r %lld)\n", (unsigned long long) threadIdx.x, base_master, (unsigned long long) page, r);
                 base = r_->acquire_page(page, count, dirty, ctrl, queue);
@@ -2750,7 +2809,8 @@ struct array_d_t {
             uint64_t gaddr = r_->get_global_address(page);
             page_cache_d_t* pc = &(r_->cache);
             uint32_t ctrl = 0;//pc->ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (pc->n_ctrls);
-            uint32_t queue = get_smid() % (pc->d_ctrls[0]->n_qps);
+            // uint32_t queue = get_smid() % (pc->d_ctrls[0]->n_qps);
+            uint32_t queue = 0;
             uint64_t base_master = r_->acquire_page(page, 1, false, ctrl, queue);
             //coalesce_page(lane, mask, r, page, gaddr, false, eq_mask, master, count, base_master);
 
@@ -2837,6 +2897,7 @@ struct array_d_t {
     __forceinline__
     __device__
     T seq_read(const size_t i) const {
+        printf("checkpoint 1.1\n");
         uint32_t lane = lane_id();
         int64_t r = find_range(i);
         auto r_ = d_ranges+r;
@@ -2855,8 +2916,9 @@ struct array_d_t {
             uint64_t page = r_->get_page(i);
             uint64_t subindex = r_->get_subindex(i);
             uint64_t gaddr = r_->get_global_address(page);
-
+            printf("checkpoint 1.2\n");
             coalesce_page(lane, mask, r, page, gaddr, false, eq_mask, master, count, base_master);
+            printf("checkpoint 1.3\n");
             //coalesce_page_2(lane, mask, r, page, gaddr, false, eq_mask, master, count, base_master);
 
             //if (threadIdx.x == 63) {
@@ -2866,13 +2928,19 @@ struct array_d_t {
             //loggingPageAction(0, page, PAGE_ACTION_ACCESS);
             #endif
 
+            auto ptr = r_->get_cache_page_addr(base_master);
+            if (ptr == NULL)
+                printf("ERROR: base_master = %llu returned null ptr\n", (unsigned long long)base_master);
+
             ret = ((T*)(r_->get_cache_page_addr(base_master)+subindex))[0];
+            printf("checkpoint 1.4\n");
             __syncwarp(eq_mask);
             if (master == lane)
                 r_->release_page(page, count);
             __syncwarp(mask);
 
         }
+        // return ret;
         return ret;
     }
     __forceinline__
@@ -2989,73 +3057,73 @@ struct array_d_t {
     }
 
 
-    __forceinline__
-    __device__
-    T AtomicAdd(const size_t i, const T val) const {
-        //uint64_t tid = threadIdx.x + blockIdx.x * blockDim.x;
-        uint32_t lane = lane_id();
-        int64_t r = find_range(i);
-        auto r_ = d_ranges+r;
-
-        T old_val = 0;
-
-        uint32_t ctrl;
-        uint32_t queue;
-
-        if (r != -1) {
-#ifndef __CUDACC__
-            uint32_t mask = 1;
-#else
-            uint32_t mask = __activemask();
-#endif
-            uint32_t leader = __ffs(mask) - 1;
-            if (lane == leader) {
-                page_cache_d_t* pc = &(r_->cache);
-                ctrl = pc->ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (pc->n_ctrls);
-                queue = get_smid() % (pc->d_ctrls[ctrl]->n_qps);
-            }
-            ctrl = __shfl_sync(mask, ctrl, leader);
-            queue = __shfl_sync(mask, queue, leader);
-
-            uint64_t page = r_->get_page(i);
-            uint64_t subindex = r_->get_subindex(i);
-
-
-            uint64_t gaddr = r_->get_global_address(page);
-            //uint64_t p_s = r_->page_size;
-
-            uint32_t active_cnt = __popc(mask);
-            uint32_t eq_mask = __match_any_sync(mask, gaddr);
-            eq_mask &= __match_any_sync(mask, (uint64_t)this);
-            int master = __ffs(eq_mask) - 1;
-            uint64_t base_master;
-            uint64_t base;
-            //bool memcpyflag_master;
-            //bool memcpyflag;
-            uint32_t count = __popc(eq_mask);
-            if (master == lane) {
-                base = r_->acquire_page(page, count, true, ctrl, queue);
-                base_master = base;
-                //    //printf("++tid: %llu\tbase: %llu  memcpyflag_master:%llu\n", (unsigned long long) threadIdx.x, (unsigned long long) base_master, (unsigned long long) memcpyflag_master);
-            }
-            base_master = __shfl_sync(eq_mask,  base_master, master);
-
-            //if (threadIdx.x == 63) {
-            ////printf("--tid: %llu\tpage: %llu\tsubindex: %llu\tbase_master: %llu\teq_mask: %x\tmaster: %llu\n", (unsigned long long) threadIdx.x, (unsigned long long) page, (unsigned long long) subindex, (unsigned long long) base_master, (unsigned) eq_mask, (unsigned long long) master);
-            //}
-            // ((T*)(base_master+subindex))[0] = val;
-            old_val = atomicAdd((T*)(r_->get_cache_page_addr(base_master)+subindex), val);
-            // //printf("AtomicAdd: tid: %llu\tpage: %llu\tsubindex: %llu\tval: %llu\told_val: %llu\tbase_master: %llx\n",
-            //        (unsigned long long) tid, (unsigned long long) page, (unsigned long long) subindex, (unsigned long long) val,
-            //     (unsigned long long) old_val, (unsigned long long) base_master);
-            __syncwarp(eq_mask);
-            if (master == lane)
-                r_->release_page(page, count);
-            __syncwarp(mask);
-        }
-
-        return old_val;
-    }
+//     __forceinline__
+//     __device__
+//     T AtomicAdd(const size_t i, const T val) const {
+//         //uint64_t tid = threadIdx.x + blockIdx.x * blockDim.x;
+//         uint32_t lane = lane_id();
+//         int64_t r = find_range(i);
+//         auto r_ = d_ranges+r;
+//
+//         T old_val = 0;
+//
+//         uint32_t ctrl;
+//         uint32_t queue;
+//
+//         if (r != -1) {
+// #ifndef __CUDACC__
+//             uint32_t mask = 1;
+// #else
+//             uint32_t mask = __activemask();
+// #endif
+//             uint32_t leader = __ffs(mask) - 1;
+//             if (lane == leader) {
+//                 page_cache_d_t* pc = &(r_->cache);
+//                 ctrl = pc->ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (pc->n_ctrls);
+//                 queue = get_smid() % (pc->d_ctrls[ctrl]->n_qps);
+//             }
+//             ctrl = __shfl_sync(mask, ctrl, leader);
+//             queue = __shfl_sync(mask, queue, leader);
+//
+//             uint64_t page = r_->get_page(i);
+//             uint64_t subindex = r_->get_subindex(i);
+//
+//
+//             uint64_t gaddr = r_->get_global_address(page);
+//             //uint64_t p_s = r_->page_size;
+//
+//             uint32_t active_cnt = __popc(mask);
+//             uint32_t eq_mask = __match_any_sync(mask, gaddr);
+//             eq_mask &= __match_any_sync(mask, (uint64_t)this);
+//             int master = __ffs(eq_mask) - 1;
+//             uint64_t base_master;
+//             uint64_t base;
+//             //bool memcpyflag_master;
+//             //bool memcpyflag;
+//             uint32_t count = __popc(eq_mask);
+//             if (master == lane) {
+//                 base = r_->acquire_page(page, count, true, ctrl, queue);
+//                 base_master = base;
+//                 //    //printf("++tid: %llu\tbase: %llu  memcpyflag_master:%llu\n", (unsigned long long) threadIdx.x, (unsigned long long) base_master, (unsigned long long) memcpyflag_master);
+//             }
+//             base_master = __shfl_sync(eq_mask,  base_master, master);
+//
+//             //if (threadIdx.x == 63) {
+//             ////printf("--tid: %llu\tpage: %llu\tsubindex: %llu\tbase_master: %llu\teq_mask: %x\tmaster: %llu\n", (unsigned long long) threadIdx.x, (unsigned long long) page, (unsigned long long) subindex, (unsigned long long) base_master, (unsigned) eq_mask, (unsigned long long) master);
+//             //}
+//             // ((T*)(base_master+subindex))[0] = val;
+//             old_val = atomicAdd((T*)(r_->get_cache_page_addr(base_master)+subindex), val);
+//             // //printf("AtomicAdd: tid: %llu\tpage: %llu\tsubindex: %llu\tval: %llu\told_val: %llu\tbase_master: %llx\n",
+//             //        (unsigned long long) tid, (unsigned long long) page, (unsigned long long) subindex, (unsigned long long) val,
+//             //     (unsigned long long) old_val, (unsigned long long) base_master);
+//             __syncwarp(eq_mask);
+//             if (master == lane)
+//                 r_->release_page(page, count);
+//             __syncwarp(mask);
+//         }
+//
+//         return old_val;
+//     }
 
 
 
@@ -3148,7 +3216,7 @@ void page_cache_d_t::evict_all_to_hc()
         uint64_t index = get_backing_page_(ranges_page_starts[range], address, n_ctrls, ranges_dists[range]);
 
         for (ctrl = 0; ctrl < n_ctrls; ctrl++) {
-            Controller* c = this->d_ctrls[ctrl];
+            // Controller* c = this->d_ctrls[ctrl];
             uint32_t queue = 0;
             int ret;
             if (state & DIRTY) {
@@ -3172,657 +3240,1116 @@ void page_cache_d_t::evict_all_to_hc()
     }
 }
 
-__forceinline__
-__device__
-uint32_t page_cache_d_t::find_slot(uint64_t address, uint64_t range_id, const uint32_t queue_, int32_t* bid) {
+
+// tzwang
+__forceinline__ __device__
+uint32_t page_cache_d_t::find_slot(uint64_t address, uint64_t range_id, const uint32_t /*queue_*/, int32_t* bid) {
     bool fail = true;
     uint64_t count = 0;
-    uint32_t global_address =(uint32_t) ((address << n_ranges_bits) | range_id); //not elegant. but hack
+    uint32_t global_address = (uint32_t)((address << n_ranges_bits) | range_id);
     uint32_t page = 0;
     unsigned int ns = 8;
-	//uint64_t j = 0;
-    uint64_t expected_state = VALID;
-    uint64_t new_expected_state = 0;
-    //int64_t rrpv_increment_s = 0;
-
-#if GET_PAGE_FAULT_RATE
-    int cec = atomicAdd((int*)&concurrent_evict_count, 1);
-    __threadfence();
-    if ((clock() - evict_clock) >= 100000) {
-    //if (true) {
-        evict_clock = clock();
-        printf("ev %lu %d\n", evict_clock, cec);
-    }
-#endif
-
 
     do {
-        page = page_ticket->fetch_add(1, simt::memory_order_relaxed)  % (this->n_pages);
-        bool lock = false;
+        page = page_ticket->fetch_add(1, simt::memory_order_relaxed) % this->n_pages;
         uint32_t v = this->cache_pages[page].page_take_lock.load(simt::memory_order_relaxed);
 
-        // Update timestamp upon re-references
-        //#if USE_HOST_CACHE
-        #if USE_HOST_CACHE && ENABLE_TMM
-        if (ranges_reuse_hist[range_id][address].evicted_before) {
-            update_timestamp_upon_re_reference(&(ranges_reuse_hist[range_id][address]), this->virt_timestamp->load(simt::memory_order_relaxed));
+        if (v == FREE || v == UNLOCKED) {
+            bool lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(
+                v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
 
-            #if GET_GOLDEN_REUSE_DISTANCE
-            uint64_t actual_remaining_reuse_dist = ranges_reuse_hist[range_id][address].actual_reuse_dist_upon_re_ref - ranges_reuse_hist[range_id][address].dist_from_ref_to_eviction;
-            bool is_prediction_correct = getPredictionResult(actual_remaining_reuse_dist, ranges_reuse_hist[range_id][address].curr_predicted_tier); 
-            print_reuse_history((ranges_reuse_hist[range_id][address]), ranges_reuse_hist[range_id][address].curr_predicted_tier);
-            printf("actual remaining reuse dist of page %lu : %lu (correct? %d) (dist_on_re-ref %lu, dist_on_eviction %lu) (curr predicted tier %u, estimated_remaining_reuse_dist %lu, remaining_virt_timestamp_dist %lu) (reasons: %s)\n", ((((uint64_t)range_id)<<32)|(uint64_t)address), actual_remaining_reuse_dist, is_prediction_correct, ranges_reuse_hist[range_id][address].actual_reuse_dist_upon_re_ref, ranges_reuse_hist[range_id][address].dist_from_ref_to_eviction, ranges_reuse_hist[range_id][address].curr_predicted_tier, ranges_reuse_hist[range_id][address].estimated_remaining_reuse_dist, ranges_reuse_hist[range_id][address].remaining_virt_timestamp_dist, tier_prediction_reasons_str[ranges_reuse_hist[range_id][address].tier_prediction_reason]);
-            if (is_prediction_correct) {
-                accurate_count->fetch_add(1, simt::memory_order_relaxed);
-            }
-            total_pred_count->fetch_add(1, simt::memory_order_relaxed);
-            printf("prediction accuracy so far ... %f\n", (float)accurate_count->load()/(float)total_pred_count->load());
-            // */
-            #endif
+            if (lock) {
+                if (v == UNLOCKED) {
+                    uint32_t prev_gaddr = this->cache_pages[page].page_translation;
+                    uint32_t prev_range = prev_gaddr & n_ranges_mask;
+                    uint32_t prev_addr  = prev_gaddr >> n_ranges_bits;
 
-            //update_timestamp_upon_re_reference(&(ranges_reuse_hist[range_id][address]), this->virt_timestamp->load(simt::memory_order_relaxed));
-            #if PRINT_TMM
-            printf("[%lu][%lu] estimated reuse distance: %lu (tier %u) (virt timestamp diff %lu, slope %f, offset %f)\n", range_id, address, ranges_reuse_hist[range_id][address].estimated_remaining_reuse_dist, ranges_reuse_hist[range_id][address].last_predicted_tier, virt_timestamp->load(simt::memory_order_relaxed)-ranges_reuse_hist[range_id][address].last_eviction_virt_timestamp, curr_reg_info());
-            #endif
+                    uint32_t state = this->ranges[prev_range][prev_addr].state.load(simt::memory_order_relaxed);
 
-            //if (ranges_reuse_hist[range_id][address].thrashing_count >= 2) {
-            //    printf("[%lu][%lu] thrashing count %u\n", range_id, address, ranges_reuse_hist[range_id][address].thrashing_count);
-            //}
-        }
-        #endif
+                    if ((state & CNT_MASK) == 0 && (state & BUSY) == 0) {
+                        uint32_t old_state = this->ranges[prev_range][prev_addr].state.fetch_or(BUSY, simt::memory_order_acquire);
+                        if (((old_state & BUSY) == 0) && ((old_state & CNT_MASK) == 0)) {
+                            bool is_dirty = old_state & DIRTY;
 
-        //not assigned to anyone yet
-        if ( v == FREE ) {
-            lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
-            if ( lock ) {
+                            #if USE_HOST_CACHE && ENABLE_TMM
+                            bool reuse_place_decision = false;
+                            uint32_t tier = which_tier_to_evict(&(ranges_reuse_hist[prev_range][prev_addr]),
+                                                                this->virt_timestamp->load(simt::memory_order_relaxed),
+                                                                reuse_place_decision);
+                            if (tier == Tier1_GPU) {
+                                // skip this slot, try another
+                                this->ranges[prev_range][prev_addr].state.fetch_and(~BUSY, simt::memory_order_release);
+                                this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
+                                continue;
+                            }
+                            if (tier == Tier2_CPU && (!idle_slots_too_few(0))) {
+                                int ret = accessHostCache((void*)get_cache_page_addr(page),
+                                                          (((uint64_t)prev_range << 32) | prev_addr),
+                                                          GPU_RW_EVICT_TO_HOST,
+                                                          &(this->ranges[prev_range][prev_addr].bid),
+                                                          is_dirty);
+                                if (ret == HOST_CACHE_SUCCEEDED) {
+                                    this->ranges[prev_range][prev_addr].state.fetch_or(CACHED_BY_HOST, simt::memory_order_release);
+                                    this->tier2_occupied_count->fetch_add(1, simt::memory_order_relaxed);
+                                }
+                            }
+                            #endif
+
+                            // clear DIRTY + BUSY
+                            this->ranges[prev_range][prev_addr].state.fetch_and(~(DIRTY | BUSY), simt::memory_order_release);
+                        } else {
+                            // someone else modified, skip
+                            this->ranges[prev_range][prev_addr].state.fetch_and(~BUSY, simt::memory_order_release);
+                        }
+                    }
+                }
+
                 this->cache_pages[page].page_translation = global_address;
                 this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
                 fail = false;
             }
-            //printf("thread %lu - FREE - find slot for %lu (v %u, lock %u)\n", (uint64_t)(blockDim.x*blockIdx.x+threadIdx.x), address, v, lock);
         }
-        //assigned to someone and was able to take lock
-        else if ( v == UNLOCKED ) {
-            lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
-            if (lock) {
-                uint32_t previous_global_address = this->cache_pages[page].page_translation;
-                uint32_t previous_range = previous_global_address & n_ranges_mask;
-                uint32_t previous_address = previous_global_address >> n_ranges_bits;
-                expected_state = this->ranges[previous_range][previous_address].state.load(simt::memory_order_relaxed);
 
-                uint32_t cnt = expected_state & CNT_MASK;
-                uint32_t b = expected_state & BUSY;
-                
-                if ((cnt == 0) && (b == 0) ) {
-                    new_expected_state = this->ranges[previous_range][previous_address].state.fetch_or(BUSY, simt::memory_order_acquire);
-                    if (((new_expected_state & BUSY ) == 0) ) {
-                        if (((new_expected_state & CNT_MASK ) == 0) ) {
-                            if ((new_expected_state & DIRTY)) {
-                                uint64_t ctrl = get_backing_ctrl_(previous_address, n_ctrls, ranges_dists[previous_range]);
-                                uint64_t index = get_backing_page_(ranges_page_starts[previous_range], previous_address, n_ctrls, ranges_dists[previous_range]);
-                                //printf("Eviciting range_id: %llu\tpage_id: %llu\tctrl: %llx\tindex: %llu\n",
-                                //        (unsigned long long) previous_range, (unsigned long long)previous_address,
-                                //        (unsigned long long) ctrl, (unsigned long long) index);
-                                if (ctrl == ALL_CTRLS) {
-                                    for (ctrl = 0; ctrl < n_ctrls; ctrl++) {
-                                        Controller* c = this->d_ctrls[ctrl];
-                                        uint32_t queue = queue_ % (c->n_qps);
-                                        //evict_cnt->fetch_add(1, simt::memory_order_relaxed);
-                                    
-                                    #if USE_HOST_CACHE && ENABLE_TMM
-                                        bool reuse_place_decision = false;
-                                        uint32_t tier_to_evict = which_tier_to_evict(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed), reuse_place_decision, true);
-
-                                        if (reuse_place_decision) {
-                                            //printf("[%u][%u] decision: %u\n", previous_range, previous_address, tier_to_evict);
-                                            tier_bins_d->bins[tier_to_evict]++;
-                                            
-                                            // Chia-Hao: 091323
-                                            if (tier_to_evict == Tier3_SSD && page_stealing()) {
-                                                tier_to_evict = Tier2_CPU;
-                                            }
-                                        }
-
-                                        #if GET_GOLDEN_REUSE_DISTANCE
-                                        uint64_t actual_reuse_dist = pushMemSampleToHost(((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_SAMPLE_MEM_EVICTION);
-                                        ranges_reuse_hist[previous_range][previous_address].dist_from_ref_to_eviction = actual_reuse_dist;
-                                        ranges_reuse_hist[previous_range][previous_address].curr_predicted_tier = tier_to_evict;
-                                        
-                                        #endif
-                                    
-                                    // 072223
-                                    #if 1
-                                        //printf("all pages evicted %lu - total pages num %lu\n", all_pages_evicted(), total_pages_num);
-                                        if (!reuse_place_decision && 
-                                        //if (
-                                            tier_to_evict == Tier3_SSD && all_pages_evicted() >= (total_pages_num>>1)
-                                        && ranges_reuse_hist[previous_range][previous_address].evicted_before > 0
-                                        ) {
-                                            if (!idle_slots_too_few(0))
-                                                tier_to_evict = Tier2_CPU;
-                                            //printf("Special Eviction for clean pages...\n");
-                                        }
-
-                                    #endif
-                                    
-                                    //#if GET_PAGE_FAULT_RATE
-                                    #if 0
-                                        int cec = atomicAdd((int*)&concurrent_evict_count, 1);
-                                        __threadfence();
-                                        //if ((clock() - evict_clock) >= 100000) {
-                                        if (true) {
-                                            evict_clock = clock();
-                                            printf("ev %lu %d\n", evict_clock, cec);
-                                        }
-                                    #endif
-                                        //printf("Evict [%u][%u] to %s\n", previous_range, previous_address, mem_tier_str[tier_to_evict]);
-                                        //printf("tier to evict %u, idle_slots %ld\n", tier_to_evict, *num_idle_slots);
-                                        if (tier_to_evict == Tier2_CPU && !idle_slots_too_few(0)) 
-                                        //if (tier_to_evict == Tier2_CPU) 
-                                        {
-                                            int ret = accessHostCache((void*)get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(ranges[previous_range][previous_address].bid), true);
-                                            if (ret == HOST_CACHE_SUCCEEDED) {
-                                                //printf("Cache by host %lu dirty\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address));
-                                            #if PRINT_TMM
-                                                printf("[Tier-1 GPU] [%u][%u] goes to Tier 2 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
-                                            #endif
-                                                this->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
-                                                this->tier2_occupied_count->fetch_add(1, simt::memory_order_acquire);
-                                            }
-                                            else {
-                                                // TODO:
-                                                write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
-                                                c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
-                                            }
-                                        }
-                                        else if (tier_to_evict == Tier1_GPU) {
-                                        #if PRINT_TMM
-                                            printf("[Tier-1 GPU] [%u][%u] goes to Tier 1 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
-                                        #endif
-                                            ranges_reuse_hist[previous_range][previous_address].evict_attempt_num++;
-                                            goto unlock_page;
-                                        }
-                                        // Chia-Hao: bug@070423
-                                        else {
-                                        //else {
-                                    #endif
-                                            write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
-                                            c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
-                                    #if USE_HOST_CACHE && ENABLE_TMM
-                                            #if PRINT_TMM
-                                            printf("[Tier-1 GPU] [%u][%u] goes to Tier 3 (last %s) (evicted num %u)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier], ranges_reuse_hist[previous_range][previous_address].evicted_before);
-                                            #endif
-                                            
-                                            // Disable HC state: 100123
-                                            this->ranges[previous_range][previous_address].state.fetch_and(~CACHED_BY_HOST, simt::memory_order_release);
-                                        }
-                                        
-                                        //#if GET_PAGE_FAULT_RATE
-                                        #if 0
-                                        atomicSub((int*)&concurrent_evict_count, 1);
-                                        #endif
-                                    #endif
-                                    }
-                                }
-                                else {
-                                    Controller* c = this->d_ctrls[ctrl];
-                                    uint32_t queue = queue_ % (c->n_qps);
-                                    //index = ranges_page_starts[previous_range] + previous_address;
-                                    write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
-                                    c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
-                                }
-                                evict_cnt->fetch_add(1, simt::memory_order_relaxed);
-                            #if SPECIAL_EVICTION_FOR_CLEAN_PAGES
-                                dirty_pages_evicted->fetch_add(1, simt::memory_order_acquire);
-                            #endif
-
-                            }
-                            #if USE_HOST_CACHE && ENABLE_TMM
-                            else {
-                                // clean page
-                                ///*
-                                bool reuse_place_decision = false;
-                                uint32_t tier_to_evict = which_tier_to_evict(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed), reuse_place_decision);
-
-                                if (reuse_place_decision) {
-                                    tier_bins_d->bins[tier_to_evict]++;
-
-                                    // Chia-Hao: 091323
-                                    if (tier_to_evict == Tier3_SSD && page_stealing()) {
-                                        tier_to_evict = Tier2_CPU;
-                                    }
-                                }
-                                // get "real" reuse distance if the flag is enabled
-                                #if GET_GOLDEN_REUSE_DISTANCE
-                                uint64_t actual_reuse_dist = pushMemSampleToHost(((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_SAMPLE_MEM_EVICTION);
-                                ranges_reuse_hist[previous_range][previous_address].dist_from_ref_to_eviction = actual_reuse_dist;
-                                ranges_reuse_hist[previous_range][previous_address].curr_predicted_tier = tier_to_evict;
-                                #endif
-
-                                #if SPECIAL_EVICTION_FOR_CLEAN_PAGES
-                                //printf("all pages evicted %lu - total pages num %lu\n", all_pages_evicted(), total_pages_num);
-
-                                if (!reuse_place_decision && 
-                                //if (
-                                    tier_to_evict == Tier3_SSD && all_pages_evicted() >= (total_pages_num>>1) && dirty_pages_evicted->load() < special_handling_threshold()
-                                    && ranges_reuse_hist[previous_range][previous_address].evicted_before > 0
-                                ) {
-                                    if (!idle_slots_too_few(0))
-                                        tier_to_evict = Tier2_CPU;
-                                    //printf("Special Eviction for clean pages...[%u][%u]\n", previous_range, previous_address);
-                                }
-                                // Chia-Hao: 080623
-                                else if (reuse_place_decision && tier_to_evict == Tier3_SSD && unique_page_evict_num->load() > 549824){
-                                    //tier_to_evict = Tier2_CPU;
-                                }
-
-                                clean_pages_evicted->fetch_add(1, simt::memory_order_acquire);
-                                #endif
-                                
-                                //#if GET_PAGE_FAULT_RATE
-                                #if 0
-                                int cec = atomicAdd((int*)&concurrent_evict_count, 1);
-                                __threadfence();
-                                //if ((clock() - evict_clock) >= 100000) {
-                                if (true) {
-                                    evict_clock = clock();
-                                    printf("ev %lu %d\n", evict_clock, cec);
-                                }
-                                #endif
-                                //printf("Evict [%u][%u] to %s\n", previous_range, previous_address, mem_tier_str[tier_to_evict]);
-                                //printf("tier to evict %u, idle_slots %ld\n", tier_to_evict, *num_idle_slots);
-                                if (tier_to_evict == Tier2_CPU && !idle_slots_too_few(64)) {
-                                //if (previous_address < 18432) {
-                                    if ((expected_state & CACHED_BY_HOST) == 0x0) { 
-                                        //printf("Cache by host (clean)%lu\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address));
-                                        int ret = accessHostCache((void*)get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(ranges[previous_range][previous_address].bid), false);
-                                        //printf("accessHostCache done for %lu (bid %lu)\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), ranges[previous_range][previous_address].bid);
-                                        //int ret = HOST_CACHE_SUCCEEDED;
-                                        if (ret == HOST_CACHE_SUCCEEDED) {
-                                            this->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
-                                            //printf("New state is %u\n", this->ranges[previous_range][previous_address].state.load());
-                                            this->tier2_occupied_count->fetch_add(1, simt::memory_order_acquire);
-                                        }
-                                    }
-                                #if PRINT_TMM
-                                    printf("[Tier-1 GPU] [%u][%u] (clean) goes to Tier 2 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
-                                #endif
-
-                                    //printf("tier 2 occupied count %lu (remain %lu)\n", this->tier2_occupied_count->load(simt::memory_order_acquire), second_tier_mem_pages-this->tier2_occupied_count->load(simt::memory_order_acquire));
-                                }
-                                else if (tier_to_evict == Tier1_GPU) {
-                                #if PRINT_TMM
-                                    printf("[Tier-1 GPU] [%u][%u] (clean) goes to Tier 1 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
-                                #endif
-                                    ranges_reuse_hist[previous_range][previous_address].evict_attempt_num++;
-                                    goto unlock_page;
-                                }
-                                else {
-                                #if PRINT_TMM
-                                    printf("[%u][%u] discarded (clean)\n", previous_range, previous_address);
-                                #endif
-                                }
-                                //*/
-
-                                //#if GET_PAGE_FAULT_RATE
-                                #if 0
-                                atomicSub((int*)&concurrent_evict_count, 1);
-                                #endif
-                            }
-                            #endif
-                            
-                            // Update timestamp upon evictions
-                            //#if USE_HOST_CACHE
-                            #if USE_HOST_CACHE && ENABLE_TMM
-                            
-                            // Chia-Hao: 080623
-                            if (ranges_reuse_hist[previous_range][previous_address].evicted_before == 0)  {
-                                unique_page_evict_num->fetch_add(1, simt::memory_order_relaxed);
-                            }
-
-                            // Chia-Hao: 091323
-                            //if (tier_bins_d->bins[3] >= 10000 && (this->virt_timestamp->load() % 100000) >= 0 && (this->virt_timestamp->load() % 100000) < 100) {
-                            //    printf("Tier1 %lu, Tier2 %lu, Tier3 %lu\n", tier_bins_d->bins[1], tier_bins_d->bins[2], tier_bins_d->bins[3]);
-                            //}
-
-                            update_timestamp_upon_eviction(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed));
-                            #endif
-                            //printf("[%lu][%lu] eviction timestamp: %lu\n", range_id, address, virt_timestamp->load(simt::memory_order_relaxed));
-                            //printf("[key %lu] eviction timestamp: %lu\n", ((uint64_t)range_id<<32|(uint64_t)address), virt_timestamp->load(simt::memory_order_relaxed));
-
-                            fail = false;
-                            //this->ranges[previous_range][previous_address].state.fetch_and(CNT_MASK, simt::memory_order_release);
-                            this->ranges[previous_range][previous_address].state.fetch_and(CNT_MASK | CACHED_BY_HOST, simt::memory_order_release);
-
-                            #if USE_HOST_CACHE && PROFILE
-                            loggingPageAction(previous_range, previous_address, PAGE_ACTION_EVICT);
-                            #endif
-                            
-                            evict_cnt->fetch_add(1, simt::memory_order_relaxed);
-                            
-                            #if GET_PAGE_FAULT_RATE
-                            //atomicSub((int*)&concurrent_evict_count, 1);
-                            //__threadfence();
-                            #endif
-                        }
-                        else { 
-unlock_page:
-                            this->ranges[previous_range][previous_address].state.fetch_and(DISABLE_BUSY_MASK, simt::memory_order_release);
-                        }
-                    }
-                }
-                if (!fail) {
-                    this->cache_pages[page].page_translation = global_address;
-                }
-                this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
-            }
-        }
         count++;
-
         if (fail) {
 #if defined(__CUDACC__) && (__CUDA_ARCH__ >= 700 || !defined(__CUDA_ARCH__))
-             __nanosleep(ns);
-             if (ns < 256) {
-                 ns *= 2;
-             }
+            __nanosleep(ns);
+            if (ns < 256) ns *= 2;
 #endif
-            //   if ((j % 10000000) == 0) {
-            //     printf("failed to find slot j: %llu\taddr: %llx\tpage: %llx\texpected_state: %llx\tnew_expected_date: %llx\n", (unsigned long long) j, (unsigned long long) address, (unsigned long long)page, (unsigned long long) expected_state, (unsigned long long) new_expected_state);
-//            }
-//	   expected_state = 0;
-//	   new_expected_state = 0;
         }
-        
-        //if (fail) printf("thread %lu - find slot for %lu (range %lu) (v %u, lock %u, new_expected_state %lx)\n", (uint64_t)(blockDim.x*blockIdx.x+threadIdx.x), address, range_id, v, lock, (new_expected_state & CNT_MASK));
-    } while(fail);
 
-#if GET_PAGE_FAULT_RATE
-    atomicSub((int*)&concurrent_evict_count, 1);
-    __threadfence();
-#endif 
-
-    return page;
-
-}
-
-__forceinline__
-__device__
-uint32_t page_cache_d_t::find_slot_prefetching(uint64_t address, uint64_t range_id, const uint32_t queue_, int32_t* bid) {
-    bool fail = true;
-    uint64_t count = 0;
-    uint32_t global_address =(uint32_t) ((address << n_ranges_bits) | range_id); //not elegant. but hack
-    uint32_t page = 0;
-    unsigned int ns = 8;
-	//uint64_t j = 0;
-    uint64_t expected_state = VALID;
-    uint64_t new_expected_state = 0;
-    //int64_t rrpv_increment_s = 0;
-
-    do {
-        page = page_ticket->fetch_add(1, simt::memory_order_relaxed)  % (this->n_pages);
-        bool lock = false;
-        uint32_t v = this->cache_pages[page].page_take_lock.load(simt::memory_order_relaxed);
-
-        //not assigned to anyone yet
-        if ( v == FREE ) {
-            lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
-            if ( lock ) {
-                this->cache_pages[page].page_translation = global_address;
-                this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
-                fail = false;
-            }
-            //printf("thread %lu - FREE - find slot for %lu (v %u, lock %u)\n", (uint64_t)(blockDim.x*blockIdx.x+threadIdx.x), address, v, lock);
-        }
-        //assigned to someone and was able to take lock
-        else if ( v == UNLOCKED ) {
-            lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
-            if (lock) {
-                uint32_t previous_global_address = this->cache_pages[page].page_translation;
-                uint32_t previous_range = previous_global_address & n_ranges_mask;
-                uint32_t previous_address = previous_global_address >> n_ranges_bits;
-                expected_state = this->ranges[previous_range][previous_address].state.load(simt::memory_order_relaxed);
-
-                uint32_t cnt = expected_state & CNT_MASK;
-                uint32_t b = expected_state & BUSY;
-                
-                if ((cnt == 0) && (b == 0) ) {
-                    new_expected_state = this->ranges[previous_range][previous_address].state.fetch_or(BUSY, simt::memory_order_acquire);
-                    if (((new_expected_state & BUSY ) == 0) ) {
-                        if (((new_expected_state & CNT_MASK ) == 0) ) {
-                            if ((new_expected_state & DIRTY)) {
-                                uint64_t ctrl = get_backing_ctrl_(previous_address, n_ctrls, ranges_dists[previous_range]);
-                                uint64_t index = get_backing_page_(ranges_page_starts[previous_range], previous_address, n_ctrls, ranges_dists[previous_range]);
-                                //printf("Eviciting range_id: %llu\tpage_id: %llu\tctrl: %llx\tindex: %llu\n",
-                                //        (unsigned long long) previous_range, (unsigned long long)previous_address,
-                                //        (unsigned long long) ctrl, (unsigned long long) index);
-                                if (ctrl == ALL_CTRLS) {
-                                    for (ctrl = 0; ctrl < n_ctrls; ctrl++) {
-                                        Controller* c = this->d_ctrls[ctrl];
-                                        uint32_t queue = queue_ % (c->n_qps);
-                                        //evict_cnt->fetch_add(1, simt::memory_order_relaxed);
-                                    
-                                    #if USE_HOST_CACHE && ENABLE_TMM
-                                        bool reuse_place_decision = false;
-                                        uint32_t tier_to_evict = which_tier_to_evict(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed), reuse_place_decision, true);
-
-                                        if (reuse_place_decision) {
-                                            //printf("[%u][%u] decision: %u\n", previous_range, previous_address, tier_to_evict);
-                                            tier_bins_d->bins[tier_to_evict]++;
-                                            
-                                            // Chia-Hao: 091323
-                                            if (tier_to_evict == Tier3_SSD && page_stealing()) {
-                                                tier_to_evict = Tier2_CPU;
-                                            }
-                                        }
-                                    
-                                    // 072223
-                                    #if 1
-                                        //printf("all pages evicted %lu - total pages num %lu\n", all_pages_evicted(), total_pages_num);
-                                        if (!reuse_place_decision && 
-                                        //if (
-                                            tier_to_evict == Tier3_SSD && all_pages_evicted() >= (total_pages_num>>1)
-                                        && ranges_reuse_hist[previous_range][previous_address].evicted_before > 0
-                                        ) {
-                                            if (!idle_slots_too_few(0))
-                                                tier_to_evict = Tier2_CPU;
-                                            //printf("Special Eviction for clean pages...\n");
-                                        }
-
-                                    #endif
-                                    
-                                        //printf("Evict [%u][%u] to %s\n", previous_range, previous_address, mem_tier_str[tier_to_evict]);
-                                        //printf("tier to evict %u, idle_slots %ld\n", tier_to_evict, *num_idle_slots);
-                                        if (tier_to_evict == Tier2_CPU && !idle_slots_too_few(0)) 
-                                        //if (tier_to_evict == Tier2_CPU) 
-                                        {
-                                            int ret = accessHostCache((void*)get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(ranges[previous_range][previous_address].bid), true);
-                                            if (ret == HOST_CACHE_SUCCEEDED) {
-                                                //printf("Cache by host %lu dirty\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address));
-                                            #if PRINT_TMM
-                                                printf("[Tier-1 GPU] [%u][%u] goes to Tier 2 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
-                                            #endif
-                                                this->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
-                                                this->tier2_occupied_count->fetch_add(1, simt::memory_order_acquire);
-                                            }
-                                            else {
-                                                // TODO:
-                                                write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
-                                                c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
-                                            }
-                                        }
-                                        else if (tier_to_evict == Tier1_GPU) {
-                                        #if PRINT_TMM
-                                            printf("[Tier-1 GPU] [%u][%u] goes to Tier 1 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
-                                        #endif
-                                            ranges_reuse_hist[previous_range][previous_address].evict_attempt_num++;
-                                            goto unlock_page;
-                                        }
-                                        // Chia-Hao: bug@070423
-                                        else {
-                                        //else {
-                                    #endif
-                                            write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
-                                            c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
-                                    #if USE_HOST_CACHE && ENABLE_TMM
-                                            #if PRINT_TMM
-                                            printf("[Tier-1 GPU] [%u][%u] goes to Tier 3 (last %s) (evicted num %u)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier], ranges_reuse_hist[previous_range][previous_address].evicted_before);
-                                            #endif
-                                            
-                                            // Disable HC state: 100123
-                                            this->ranges[previous_range][previous_address].state.fetch_and(~CACHED_BY_HOST, simt::memory_order_release);
-                                        }
-                                        
-                                    #endif
-                                    }
-                                }
-                                else {
-                                    Controller* c = this->d_ctrls[ctrl];
-                                    uint32_t queue = queue_ % (c->n_qps);
-                                    //index = ranges_page_starts[previous_range] + previous_address;
-                                    write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
-                                    c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
-                                }
-                                evict_cnt->fetch_add(1, simt::memory_order_relaxed);
-                            #if SPECIAL_EVICTION_FOR_CLEAN_PAGES
-                                dirty_pages_evicted->fetch_add(1, simt::memory_order_acquire);
-                            #endif
-
-                            }
-                            #if USE_HOST_CACHE && ENABLE_TMM
-                            else {
-                                // clean page
-                                ///*
-                                bool reuse_place_decision = false;
-                                uint32_t tier_to_evict = which_tier_to_evict(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed), reuse_place_decision);
-
-                                if (reuse_place_decision) {
-                                    tier_bins_d->bins[tier_to_evict]++;
-
-                                    // Chia-Hao: 091323
-                                    if (tier_to_evict == Tier3_SSD && page_stealing()) {
-                                        tier_to_evict = Tier2_CPU;
-                                    }
-                                }
-                                
-                                #if SPECIAL_EVICTION_FOR_CLEAN_PAGES
-                                if (!reuse_place_decision && 
-                                //if (
-                                    tier_to_evict == Tier3_SSD && all_pages_evicted() >= (total_pages_num>>1) && dirty_pages_evicted->load() < special_handling_threshold()
-                                    && ranges_reuse_hist[previous_range][previous_address].evicted_before > 0
-                                ) {
-                                    if (!idle_slots_too_few(0))
-                                        tier_to_evict = Tier2_CPU;
-                                    //printf("Special Eviction for clean pages...[%u][%u]\n", previous_range, previous_address);
-                                }
-                                // Chia-Hao: 080623
-                                else if (reuse_place_decision && tier_to_evict == Tier3_SSD && unique_page_evict_num->load() > 549824){
-                                    //tier_to_evict = Tier2_CPU;
-                                }
-
-                                clean_pages_evicted->fetch_add(1, simt::memory_order_acquire);
-                                #endif
-                                
-                                //printf("tier to evict %u, idle_slots %ld\n", tier_to_evict, *num_idle_slots);
-                                if (tier_to_evict == Tier2_CPU && !idle_slots_too_few(64)) {
-                                //if (previous_address < 18432) {
-                                    if ((expected_state & CACHED_BY_HOST) == 0x0) { 
-                                        //printf("Cache by host (clean)%lu\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address));
-                                        int ret = accessHostCache((void*)get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(ranges[previous_range][previous_address].bid), false);
-                                        //printf("accessHostCache done for %lu (bid %lu)\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), ranges[previous_range][previous_address].bid);
-                                        //int ret = HOST_CACHE_SUCCEEDED;
-                                        if (ret == HOST_CACHE_SUCCEEDED) {
-                                            this->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
-                                            //printf("New state is %u\n", this->ranges[previous_range][previous_address].state.load());
-                                            this->tier2_occupied_count->fetch_add(1, simt::memory_order_acquire);
-                                        }
-                                    }
-                                #if PRINT_TMM
-                                    printf("[Tier-1 GPU] [%u][%u] (clean) goes to Tier 2 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
-                                #endif
-
-                                    //printf("tier 2 occupied count %lu (remain %lu)\n", this->tier2_occupied_count->load(simt::memory_order_acquire), second_tier_mem_pages-this->tier2_occupied_count->load(simt::memory_order_acquire));
-                                }
-                                else if (tier_to_evict == Tier1_GPU) {
-                                #if PRINT_TMM
-                                    printf("[Tier-1 GPU] [%u][%u] (clean) goes to Tier 1 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
-                                #endif
-                                    ranges_reuse_hist[previous_range][previous_address].evict_attempt_num++;
-                                    goto unlock_page;
-                                }
-                                else {
-                                #if PRINT_TMM
-                                    printf("[%u][%u] discarded (clean)\n", previous_range, previous_address);
-                                #endif
-                                }
-                                //*/
-
-                            }
-                            #endif
-                            
-                            // Update timestamp upon evictions
-                            //#if USE_HOST_CACHE
-                            #if USE_HOST_CACHE && ENABLE_TMM
-                            
-                            // Chia-Hao: 080623
-                            if (ranges_reuse_hist[previous_range][previous_address].evicted_before == 0)  {
-                                unique_page_evict_num->fetch_add(1, simt::memory_order_relaxed);
-                            }
-
-                            // Chia-Hao: 091323
-                            //if (tier_bins_d->bins[3] >= 10000 && (this->virt_timestamp->load() % 100000) >= 0 && (this->virt_timestamp->load() % 100000) < 100) {
-                            //    printf("Tier1 %lu, Tier2 %lu, Tier3 %lu\n", tier_bins_d->bins[1], tier_bins_d->bins[2], tier_bins_d->bins[3]);
-                            //}
-
-                            update_timestamp_upon_eviction(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed));
-                            #endif
-                            //printf("[%lu][%lu] eviction timestamp: %lu\n", range_id, address, virt_timestamp->load(simt::memory_order_relaxed));
-                            //printf("[key %lu] eviction timestamp: %lu\n", ((uint64_t)range_id<<32|(uint64_t)address), virt_timestamp->load(simt::memory_order_relaxed));
-
-                            fail = false;
-                            //this->ranges[previous_range][previous_address].state.fetch_and(CNT_MASK, simt::memory_order_release);
-                            this->ranges[previous_range][previous_address].state.fetch_and(CNT_MASK | CACHED_BY_HOST, simt::memory_order_release);
-
-                            
-                            evict_cnt->fetch_add(1, simt::memory_order_relaxed);
-                            
-                        }
-                        else { 
-unlock_page:
-                            this->ranges[previous_range][previous_address].state.fetch_and(DISABLE_BUSY_MASK, simt::memory_order_release);
-                        }
-                    }
-                }
-                if (!fail) {
-                    this->cache_pages[page].page_translation = global_address;
-                }
-                this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
-            }
-        }
-        count++;
-
-        if (fail) {
-#if defined(__CUDACC__) && (__CUDA_ARCH__ >= 700 || !defined(__CUDA_ARCH__))
-             __nanosleep(ns);
-             if (ns < 256) {
-                 ns *= 2;
-             }
-#endif
-            //   if ((j % 10000000) == 0) {
-            //     printf("failed to find slot j: %llu\taddr: %llx\tpage: %llx\texpected_state: %llx\tnew_expected_date: %llx\n", (unsigned long long) j, (unsigned long long) address, (unsigned long long)page, (unsigned long long) expected_state, (unsigned long long) new_expected_state);
-//            }
-//	   expected_state = 0;
-//	   new_expected_state = 0;
-        }
-        
-        //if (fail) printf("thread %lu - find slot for %lu (range %lu) (v %u, lock %u, new_expected_state %lx)\n", (uint64_t)(blockDim.x*blockIdx.x+threadIdx.x), address, range_id, v, lock, (new_expected_state & CNT_MASK));
-    } while(fail);
+    } while (fail);
 
     return page;
 }
 
 
+// __forceinline__
+// __device__
+// uint32_t page_cache_d_t::find_slot(uint64_t address, uint64_t range_id, const uint32_t queue_, int32_t* bid) {
+//     bool fail = true;
+//     uint64_t count = 0;
+//     uint32_t global_address =(uint32_t) ((address << n_ranges_bits) | range_id); //not elegant. but hack
+//     uint32_t page = 0;
+//     unsigned int ns = 8;
+// 	//uint64_t j = 0;
+//     uint64_t expected_state = VALID;
+//     uint64_t new_expected_state = 0;
+//     //int64_t rrpv_increment_s = 0;
+//
+// #if GET_PAGE_FAULT_RATE
+//     int cec = atomicAdd((int*)&concurrent_evict_count, 1);
+//     __threadfence();
+//     if ((clock() - evict_clock) >= 100000) {
+//     //if (true) {
+//         evict_clock = clock();
+//         printf("ev %lu %d\n", evict_clock, cec);
+//     }
+// #endif
+//
+//
+//     do {
+//         page = page_ticket->fetch_add(1, simt::memory_order_relaxed)  % (this->n_pages);
+//         bool lock = false;
+//         uint32_t v = this->cache_pages[page].page_take_lock.load(simt::memory_order_relaxed);
+//
+//         // Update timestamp upon re-references
+//         //#if USE_HOST_CACHE
+//         #if USE_HOST_CACHE && ENABLE_TMM
+//         if (ranges_reuse_hist[range_id][address].evicted_before) {
+//             update_timestamp_upon_re_reference(&(ranges_reuse_hist[range_id][address]), this->virt_timestamp->load(simt::memory_order_relaxed));
+//
+//             #if GET_GOLDEN_REUSE_DISTANCE
+//             uint64_t actual_remaining_reuse_dist = ranges_reuse_hist[range_id][address].actual_reuse_dist_upon_re_ref - ranges_reuse_hist[range_id][address].dist_from_ref_to_eviction;
+//             bool is_prediction_correct = getPredictionResult(actual_remaining_reuse_dist, ranges_reuse_hist[range_id][address].curr_predicted_tier);
+//             print_reuse_history((ranges_reuse_hist[range_id][address]), ranges_reuse_hist[range_id][address].curr_predicted_tier);
+//             printf("actual remaining reuse dist of page %lu : %lu (correct? %d) (dist_on_re-ref %lu, dist_on_eviction %lu) (curr predicted tier %u, estimated_remaining_reuse_dist %lu, remaining_virt_timestamp_dist %lu) (reasons: %s)\n", ((((uint64_t)range_id)<<32)|(uint64_t)address), actual_remaining_reuse_dist, is_prediction_correct, ranges_reuse_hist[range_id][address].actual_reuse_dist_upon_re_ref, ranges_reuse_hist[range_id][address].dist_from_ref_to_eviction, ranges_reuse_hist[range_id][address].curr_predicted_tier, ranges_reuse_hist[range_id][address].estimated_remaining_reuse_dist, ranges_reuse_hist[range_id][address].remaining_virt_timestamp_dist, tier_prediction_reasons_str[ranges_reuse_hist[range_id][address].tier_prediction_reason]);
+//             if (is_prediction_correct) {
+//                 accurate_count->fetch_add(1, simt::memory_order_relaxed);
+//             }
+//             total_pred_count->fetch_add(1, simt::memory_order_relaxed);
+//             printf("prediction accuracy so far ... %f\n", (float)accurate_count->load()/(float)total_pred_count->load());
+//             // */
+//             #endif
+//
+//             //update_timestamp_upon_re_reference(&(ranges_reuse_hist[range_id][address]), this->virt_timestamp->load(simt::memory_order_relaxed));
+//             #if PRINT_TMM
+//             printf("[%lu][%lu] estimated reuse distance: %lu (tier %u) (virt timestamp diff %lu, slope %f, offset %f)\n", range_id, address, ranges_reuse_hist[range_id][address].estimated_remaining_reuse_dist, ranges_reuse_hist[range_id][address].last_predicted_tier, virt_timestamp->load(simt::memory_order_relaxed)-ranges_reuse_hist[range_id][address].last_eviction_virt_timestamp, curr_reg_info());
+//             #endif
+//
+//             //if (ranges_reuse_hist[range_id][address].thrashing_count >= 2) {
+//             //    printf("[%lu][%lu] thrashing count %u\n", range_id, address, ranges_reuse_hist[range_id][address].thrashing_count);
+//             //}
+//         }
+//         #endif
+//
+//         //not assigned to anyone yet
+//         if ( v == FREE ) {
+//             lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
+//             if ( lock ) {
+//                 this->cache_pages[page].page_translation = global_address;
+//                 this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
+//                 fail = false;
+//             }
+//             //printf("thread %lu - FREE - find slot for %lu (v %u, lock %u)\n", (uint64_t)(blockDim.x*blockIdx.x+threadIdx.x), address, v, lock);
+//         }
+//         //assigned to someone and was able to take lock
+//         else if ( v == UNLOCKED ) {
+//             lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
+//             if (lock) {
+//                 uint32_t previous_global_address = this->cache_pages[page].page_translation;
+//                 uint32_t previous_range = previous_global_address & n_ranges_mask;
+//                 uint32_t previous_address = previous_global_address >> n_ranges_bits;
+//                 expected_state = this->ranges[previous_range][previous_address].state.load(simt::memory_order_relaxed);
+//
+//                 uint32_t cnt = expected_state & CNT_MASK;
+//                 uint32_t b = expected_state & BUSY;
+//
+//                 if ((cnt == 0) && (b == 0) ) {
+//                     new_expected_state = this->ranges[previous_range][previous_address].state.fetch_or(BUSY, simt::memory_order_acquire);
+//                     if (((new_expected_state & BUSY ) == 0) ) {
+//                         if (((new_expected_state & CNT_MASK ) == 0) ) {
+//                             if ((new_expected_state & DIRTY)) {
+//                                 uint64_t ctrl = get_backing_ctrl_(previous_address, n_ctrls, ranges_dists[previous_range]);
+//                                 uint64_t index = get_backing_page_(ranges_page_starts[previous_range], previous_address, n_ctrls, ranges_dists[previous_range]);
+//                                 //printf("Eviciting range_id: %llu\tpage_id: %llu\tctrl: %llx\tindex: %llu\n",
+//                                 //        (unsigned long long) previous_range, (unsigned long long)previous_address,
+//                                 //        (unsigned long long) ctrl, (unsigned long long) index);
+//                                 if (ctrl == ALL_CTRLS) {
+//                                     for (ctrl = 0; ctrl < n_ctrls; ctrl++) {
+//                                         Controller* c = this->d_ctrls[ctrl];
+//                                         uint32_t queue = queue_ % (c->n_qps);
+//                                         //evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//
+//                                     #if USE_HOST_CACHE && ENABLE_TMM
+//                                         bool reuse_place_decision = false;
+//                                         uint32_t tier_to_evict = which_tier_to_evict(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed), reuse_place_decision, true);
+//
+//                                         if (reuse_place_decision) {
+//                                             //printf("[%u][%u] decision: %u\n", previous_range, previous_address, tier_to_evict);
+//                                             tier_bins_d->bins[tier_to_evict]++;
+//
+//                                             // Chia-Hao: 091323
+//                                             // tzwang: no ssd
+//                                             if (tier_to_evict == Tier3_SSD && page_stealing()) {
+//                                                 tier_to_evict = Tier2_CPU;
+//                                             }
+//                                         }
+//
+//                                         #if GET_GOLDEN_REUSE_DISTANCE
+//                                         uint64_t actual_reuse_dist = pushMemSampleToHost(((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_SAMPLE_MEM_EVICTION);
+//                                         ranges_reuse_hist[previous_range][previous_address].dist_from_ref_to_eviction = actual_reuse_dist;
+//                                         ranges_reuse_hist[previous_range][previous_address].curr_predicted_tier = tier_to_evict;
+//
+//                                         #endif
+//
+//                                     // 072223
+//                                     #if 1
+//                                         //printf("all pages evicted %lu - total pages num %lu\n", all_pages_evicted(), total_pages_num);
+//                                         if (!reuse_place_decision &&
+//                                         //if (
+//                                             tier_to_evict == Tier3_SSD && all_pages_evicted() >= (total_pages_num>>1)
+//                                         && ranges_reuse_hist[previous_range][previous_address].evicted_before > 0
+//                                         ) {
+//                                             if (!idle_slots_too_few(0))
+//                                                 tier_to_evict = Tier2_CPU;
+//                                             //printf("Special Eviction for clean pages...\n");
+//                                         }
+//
+//                                     #endif
+//
+//                                     //#if GET_PAGE_FAULT_RATE
+//                                     #if 0
+//                                         int cec = atomicAdd((int*)&concurrent_evict_count, 1);
+//                                         __threadfence();
+//                                         //if ((clock() - evict_clock) >= 100000) {
+//                                         if (true) {
+//                                             evict_clock = clock();
+//                                             printf("ev %lu %d\n", evict_clock, cec);
+//                                         }
+//                                     #endif
+//                                         //printf("Evict [%u][%u] to %s\n", previous_range, previous_address, mem_tier_str[tier_to_evict]);
+//                                         //printf("tier to evict %u, idle_slots %ld\n", tier_to_evict, *num_idle_slots);
+//                                         if (tier_to_evict == Tier2_CPU && !idle_slots_too_few(0))
+//                                         //if (tier_to_evict == Tier2_CPU)
+//                                         {
+//                                             int ret = accessHostCache((void*)get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(ranges[previous_range][previous_address].bid), true);
+//                                             if (ret == HOST_CACHE_SUCCEEDED) {
+//                                                 //printf("Cache by host %lu dirty\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address));
+//                                             #if PRINT_TMM
+//                                                 printf("[Tier-1 GPU] [%u][%u] goes to Tier 2 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                             #endif
+//                                                 this->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
+//                                                 this->tier2_occupied_count->fetch_add(1, simt::memory_order_acquire);
+//                                             }
+//                                             else {
+//                                                 // TODO:
+//                                                 write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+//                                                 c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                                             }
+//                                         }
+//                                         else if (tier_to_evict == Tier1_GPU) {
+//                                         #if PRINT_TMM
+//                                             printf("[Tier-1 GPU] [%u][%u] goes to Tier 1 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                         #endif
+//                                             ranges_reuse_hist[previous_range][previous_address].evict_attempt_num++;
+//                                             goto unlock_page;
+//                                         }
+//                                         // Chia-Hao: bug@070423
+//                                         else {
+//                                         //else {
+//                                     #endif
+//                                             write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+//                                             c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                                     #if USE_HOST_CACHE && ENABLE_TMM
+//                                             #if PRINT_TMM
+//                                             printf("[Tier-1 GPU] [%u][%u] goes to Tier 3 (last %s) (evicted num %u)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier], ranges_reuse_hist[previous_range][previous_address].evicted_before);
+//                                             #endif
+//
+//                                             // Disable HC state: 100123
+//                                             this->ranges[previous_range][previous_address].state.fetch_and(~CACHED_BY_HOST, simt::memory_order_release);
+//                                         }
+//
+//                                         //#if GET_PAGE_FAULT_RATE
+//                                         #if 0
+//                                         atomicSub((int*)&concurrent_evict_count, 1);
+//                                         #endif
+//                                     #endif
+//                                     }
+//                                 }
+//                                 else {
+//                                     Controller* c = this->d_ctrls[ctrl];
+//                                     uint32_t queue = queue_ % (c->n_qps);
+//                                     //index = ranges_page_starts[previous_range] + previous_address;
+//                                     write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+//                                     c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                                 }
+//                                 evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//                             #if SPECIAL_EVICTION_FOR_CLEAN_PAGES
+//                                 dirty_pages_evicted->fetch_add(1, simt::memory_order_acquire);
+//                             #endif
+//
+//                             }
+//                             #if USE_HOST_CACHE && ENABLE_TMM
+//                             else {
+//                                 // clean page
+//                                 ///*
+//                                 bool reuse_place_decision = false;
+//                                 uint32_t tier_to_evict = which_tier_to_evict(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed), reuse_place_decision);
+//
+//                                 if (reuse_place_decision) {
+//                                     tier_bins_d->bins[tier_to_evict]++;
+//
+//                                     // Chia-Hao: 091323
+//                                     if (tier_to_evict == Tier3_SSD && page_stealing()) {
+//                                         tier_to_evict = Tier2_CPU;
+//                                     }
+//                                 }
+//                                 // get "real" reuse distance if the flag is enabled
+//                                 #if GET_GOLDEN_REUSE_DISTANCE
+//                                 uint64_t actual_reuse_dist = pushMemSampleToHost(((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_SAMPLE_MEM_EVICTION);
+//                                 ranges_reuse_hist[previous_range][previous_address].dist_from_ref_to_eviction = actual_reuse_dist;
+//                                 ranges_reuse_hist[previous_range][previous_address].curr_predicted_tier = tier_to_evict;
+//                                 #endif
+//
+//                                 #if SPECIAL_EVICTION_FOR_CLEAN_PAGES
+//                                 //printf("all pages evicted %lu - total pages num %lu\n", all_pages_evicted(), total_pages_num);
+//
+//                                 if (!reuse_place_decision &&
+//                                 //if (
+//                                     tier_to_evict == Tier3_SSD && all_pages_evicted() >= (total_pages_num>>1) && dirty_pages_evicted->load() < special_handling_threshold()
+//                                     && ranges_reuse_hist[previous_range][previous_address].evicted_before > 0
+//                                 ) {
+//                                     if (!idle_slots_too_few(0))
+//                                         tier_to_evict = Tier2_CPU;
+//                                     //printf("Special Eviction for clean pages...[%u][%u]\n", previous_range, previous_address);
+//                                 }
+//                                 // Chia-Hao: 080623
+//                                 else if (reuse_place_decision && tier_to_evict == Tier3_SSD && unique_page_evict_num->load() > 549824){
+//                                     //tier_to_evict = Tier2_CPU;
+//                                 }
+//
+//                                 clean_pages_evicted->fetch_add(1, simt::memory_order_acquire);
+//                                 #endif
+//
+//                                 //#if GET_PAGE_FAULT_RATE
+//                                 #if 0
+//                                 int cec = atomicAdd((int*)&concurrent_evict_count, 1);
+//                                 __threadfence();
+//                                 //if ((clock() - evict_clock) >= 100000) {
+//                                 if (true) {
+//                                     evict_clock = clock();
+//                                     printf("ev %lu %d\n", evict_clock, cec);
+//                                 }
+//                                 #endif
+//                                 //printf("Evict [%u][%u] to %s\n", previous_range, previous_address, mem_tier_str[tier_to_evict]);
+//                                 //printf("tier to evict %u, idle_slots %ld\n", tier_to_evict, *num_idle_slots);
+//                                 if (tier_to_evict == Tier2_CPU && !idle_slots_too_few(64)) {
+//                                 //if (previous_address < 18432) {
+//                                     if ((expected_state & CACHED_BY_HOST) == 0x0) {
+//                                         //printf("Cache by host (clean)%lu\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address));
+//                                         int ret = accessHostCache((void*)get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(ranges[previous_range][previous_address].bid), false);
+//                                         //printf("accessHostCache done for %lu (bid %lu)\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), ranges[previous_range][previous_address].bid);
+//                                         //int ret = HOST_CACHE_SUCCEEDED;
+//                                         if (ret == HOST_CACHE_SUCCEEDED) {
+//                                             this->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
+//                                             //printf("New state is %u\n", this->ranges[previous_range][previous_address].state.load());
+//                                             this->tier2_occupied_count->fetch_add(1, simt::memory_order_acquire);
+//                                         }
+//                                     }
+//                                 #if PRINT_TMM
+//                                     printf("[Tier-1 GPU] [%u][%u] (clean) goes to Tier 2 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                 #endif
+//
+//                                     //printf("tier 2 occupied count %lu (remain %lu)\n", this->tier2_occupied_count->load(simt::memory_order_acquire), second_tier_mem_pages-this->tier2_occupied_count->load(simt::memory_order_acquire));
+//                                 }
+//                                 else if (tier_to_evict == Tier1_GPU) {
+//                                 #if PRINT_TMM
+//                                     printf("[Tier-1 GPU] [%u][%u] (clean) goes to Tier 1 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                 #endif
+//                                     ranges_reuse_hist[previous_range][previous_address].evict_attempt_num++;
+//                                     goto unlock_page;
+//                                 }
+//                                 else {
+//                                 #if PRINT_TMM
+//                                     printf("[%u][%u] discarded (clean)\n", previous_range, previous_address);
+//                                 #endif
+//                                 }
+//                                 //*/
+//
+//                                 //#if GET_PAGE_FAULT_RATE
+//                                 #if 0
+//                                 atomicSub((int*)&concurrent_evict_count, 1);
+//                                 #endif
+//                             }
+//                             #endif
+//
+//                             // Update timestamp upon evictions
+//                             //#if USE_HOST_CACHE
+//                             #if USE_HOST_CACHE && ENABLE_TMM
+//
+//                             // Chia-Hao: 080623
+//                             if (ranges_reuse_hist[previous_range][previous_address].evicted_before == 0)  {
+//                                 unique_page_evict_num->fetch_add(1, simt::memory_order_relaxed);
+//                             }
+//
+//                             // Chia-Hao: 091323
+//                             //if (tier_bins_d->bins[3] >= 10000 && (this->virt_timestamp->load() % 100000) >= 0 && (this->virt_timestamp->load() % 100000) < 100) {
+//                             //    printf("Tier1 %lu, Tier2 %lu, Tier3 %lu\n", tier_bins_d->bins[1], tier_bins_d->bins[2], tier_bins_d->bins[3]);
+//                             //}
+//
+//                             update_timestamp_upon_eviction(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed));
+//                             #endif
+//                             //printf("[%lu][%lu] eviction timestamp: %lu\n", range_id, address, virt_timestamp->load(simt::memory_order_relaxed));
+//                             //printf("[key %lu] eviction timestamp: %lu\n", ((uint64_t)range_id<<32|(uint64_t)address), virt_timestamp->load(simt::memory_order_relaxed));
+//
+//                             fail = false;
+//                             //this->ranges[previous_range][previous_address].state.fetch_and(CNT_MASK, simt::memory_order_release);
+//                             this->ranges[previous_range][previous_address].state.fetch_and(CNT_MASK | CACHED_BY_HOST, simt::memory_order_release);
+//
+//                             #if USE_HOST_CACHE && PROFILE
+//                             loggingPageAction(previous_range, previous_address, PAGE_ACTION_EVICT);
+//                             #endif
+//
+//                             evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//
+//                             #if GET_PAGE_FAULT_RATE
+//                             //atomicSub((int*)&concurrent_evict_count, 1);
+//                             //__threadfence();
+//                             #endif
+//                         }
+//                         else {
+// unlock_page:
+//                             this->ranges[previous_range][previous_address].state.fetch_and(DISABLE_BUSY_MASK, simt::memory_order_release);
+//                         }
+//                     }
+//                 }
+//                 if (!fail) {
+//                     this->cache_pages[page].page_translation = global_address;
+//                 }
+//                 this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
+//             }
+//         }
+//         count++;
+//
+//         if (fail) {
+// #if defined(__CUDACC__) && (__CUDA_ARCH__ >= 700 || !defined(__CUDA_ARCH__))
+//              __nanosleep(ns);
+//              if (ns < 256) {
+//                  ns *= 2;
+//              }
+// #endif
+//             //   if ((j % 10000000) == 0) {
+//             //     printf("failed to find slot j: %llu\taddr: %llx\tpage: %llx\texpected_state: %llx\tnew_expected_date: %llx\n", (unsigned long long) j, (unsigned long long) address, (unsigned long long)page, (unsigned long long) expected_state, (unsigned long long) new_expected_state);
+// //            }
+// //	   expected_state = 0;
+// //	   new_expected_state = 0;
+//         }
+//
+//         //if (fail) printf("thread %lu - find slot for %lu (range %lu) (v %u, lock %u, new_expected_state %lx)\n", (uint64_t)(blockDim.x*blockIdx.x+threadIdx.x), address, range_id, v, lock, (new_expected_state & CNT_MASK));
+//     } while(fail);
+//
+// #if GET_PAGE_FAULT_RATE
+//     atomicSub((int*)&concurrent_evict_count, 1);
+//     __threadfence();
+// #endif
+//
+//     return page;
+//
+// }
 
-inline __device__ void poll_async(QueuePair* qp, uint16_t cid, uint16_t sq_pos) {
+
+// __forceinline__
+// __device__
+// uint32_t page_cache_d_t::find_slot(uint64_t address, uint64_t range_id, const uint32_t queue_, int32_t* bid) {
+//     bool fail = true;
+//     uint64_t count = 0;
+//     uint32_t global_address =(uint32_t) ((address << n_ranges_bits) | range_id); //not elegant. but hack
+//     uint32_t page = 0;
+//     unsigned int ns = 8;
+// 	//uint64_t j = 0;
+//     uint64_t expected_state = VALID;
+//     uint64_t new_expected_state = 0;
+//     //int64_t rrpv_increment_s = 0;
+//
+// #if GET_PAGE_FAULT_RATE
+//     int cec = atomicAdd((int*)&concurrent_evict_count, 1);
+//     __threadfence();
+//     if ((clock() - evict_clock) >= 100000) {
+//     //if (true) {
+//         evict_clock = clock();
+//         printf("ev %lu %d\n", evict_clock, cec);
+//     }
+// #endif
+//
+//
+//     do {
+//         page = page_ticket->fetch_add(1, simt::memory_order_relaxed)  % (this->n_pages);
+//         bool lock = false;
+//         uint32_t v = this->cache_pages[page].page_take_lock.load(simt::memory_order_relaxed);
+//
+//         // Update timestamp upon re-references
+//         //#if USE_HOST_CACHE
+//         #if USE_HOST_CACHE && ENABLE_TMM
+//         if (ranges_reuse_hist[range_id][address].evicted_before) {
+//             update_timestamp_upon_re_reference(&(ranges_reuse_hist[range_id][address]), this->virt_timestamp->load(simt::memory_order_relaxed));
+//
+//             #if GET_GOLDEN_REUSE_DISTANCE
+//             uint64_t actual_remaining_reuse_dist = ranges_reuse_hist[range_id][address].actual_reuse_dist_upon_re_ref - ranges_reuse_hist[range_id][address].dist_from_ref_to_eviction;
+//             bool is_prediction_correct = getPredictionResult(actual_remaining_reuse_dist, ranges_reuse_hist[range_id][address].curr_predicted_tier);
+//             print_reuse_history((ranges_reuse_hist[range_id][address]), ranges_reuse_hist[range_id][address].curr_predicted_tier);
+//             printf("actual remaining reuse dist of page %lu : %lu (correct? %d) (dist_on_re-ref %lu, dist_on_eviction %lu) (curr predicted tier %u, estimated_remaining_reuse_dist %lu, remaining_virt_timestamp_dist %lu) (reasons: %s)\n", ((((uint64_t)range_id)<<32)|(uint64_t)address), actual_remaining_reuse_dist, is_prediction_correct, ranges_reuse_hist[range_id][address].actual_reuse_dist_upon_re_ref, ranges_reuse_hist[range_id][address].dist_from_ref_to_eviction, ranges_reuse_hist[range_id][address].curr_predicted_tier, ranges_reuse_hist[range_id][address].estimated_remaining_reuse_dist, ranges_reuse_hist[range_id][address].remaining_virt_timestamp_dist, tier_prediction_reasons_str[ranges_reuse_hist[range_id][address].tier_prediction_reason]);
+//             if (is_prediction_correct) {
+//                 accurate_count->fetch_add(1, simt::memory_order_relaxed);
+//             }
+//             total_pred_count->fetch_add(1, simt::memory_order_relaxed);
+//             printf("prediction accuracy so far ... %f\n", (float)accurate_count->load()/(float)total_pred_count->load());
+//             // */
+//             #endif
+//
+//             //update_timestamp_upon_re_reference(&(ranges_reuse_hist[range_id][address]), this->virt_timestamp->load(simt::memory_order_relaxed));
+//             #if PRINT_TMM
+//             printf("[%lu][%lu] estimated reuse distance: %lu (tier %u) (virt timestamp diff %lu, slope %f, offset %f)\n", range_id, address, ranges_reuse_hist[range_id][address].estimated_remaining_reuse_dist, ranges_reuse_hist[range_id][address].last_predicted_tier, virt_timestamp->load(simt::memory_order_relaxed)-ranges_reuse_hist[range_id][address].last_eviction_virt_timestamp, curr_reg_info());
+//             #endif
+//
+//             //if (ranges_reuse_hist[range_id][address].thrashing_count >= 2) {
+//             //    printf("[%lu][%lu] thrashing count %u\n", range_id, address, ranges_reuse_hist[range_id][address].thrashing_count);
+//             //}
+//         }
+//         #endif
+//
+//         //not assigned to anyone yet
+//         if ( v == FREE ) {
+//             lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
+//             if ( lock ) {
+//                 this->cache_pages[page].page_translation = global_address;
+//                 this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
+//                 fail = false;
+//             }
+//             //printf("thread %lu - FREE - find slot for %lu (v %u, lock %u)\n", (uint64_t)(blockDim.x*blockIdx.x+threadIdx.x), address, v, lock);
+//         }
+//         //assigned to someone and was able to take lock
+//         else if ( v == UNLOCKED ) {
+//             lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
+//             if (lock) {
+//                 uint32_t previous_global_address = this->cache_pages[page].page_translation;
+//                 uint32_t previous_range = previous_global_address & n_ranges_mask;
+//                 uint32_t previous_address = previous_global_address >> n_ranges_bits;
+//                 expected_state = this->ranges[previous_range][previous_address].state.load(simt::memory_order_relaxed);
+//
+//                 uint32_t cnt = expected_state & CNT_MASK;
+//                 uint32_t b = expected_state & BUSY;
+//
+//                 if ((cnt == 0) && (b == 0) ) {
+//                     new_expected_state = this->ranges[previous_range][previous_address].state.fetch_or(BUSY, simt::memory_order_acquire);
+//                     if (((new_expected_state & BUSY ) == 0) ) {
+//                         if (((new_expected_state & CNT_MASK ) == 0) ) {
+//                             if ((new_expected_state & DIRTY)) {
+//                                 uint64_t ctrl = get_backing_ctrl_(previous_address, n_ctrls, ranges_dists[previous_range]);
+//                                 uint64_t index = get_backing_page_(ranges_page_starts[previous_range], previous_address, n_ctrls, ranges_dists[previous_range]);
+//                                 //printf("Eviciting range_id: %llu\tpage_id: %llu\tctrl: %llx\tindex: %llu\n",
+//                                 //        (unsigned long long) previous_range, (unsigned long long)previous_address,
+//                                 //        (unsigned long long) ctrl, (unsigned long long) index);
+//                                 if (ctrl == ALL_CTRLS) {
+//                                     for (ctrl = 0; ctrl < n_ctrls; ctrl++) {
+//                                         Controller* c = this->d_ctrls[ctrl];
+//                                         uint32_t queue = queue_ % (c->n_qps);
+//                                         //evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//
+//                                     #if USE_HOST_CACHE && ENABLE_TMM
+//                                         bool reuse_place_decision = false;
+//                                         uint32_t tier_to_evict = which_tier_to_evict(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed), reuse_place_decision, true);
+//
+//                                         if (reuse_place_decision) {
+//                                             //printf("[%u][%u] decision: %u\n", previous_range, previous_address, tier_to_evict);
+//                                             tier_bins_d->bins[tier_to_evict]++;
+//
+//                                             // Chia-Hao: 091323
+//                                             if (tier_to_evict == Tier3_SSD && page_stealing()) {
+//                                                 tier_to_evict = Tier2_CPU;
+//                                             }
+//                                         }
+//
+//                                         #if GET_GOLDEN_REUSE_DISTANCE
+//                                         uint64_t actual_reuse_dist = pushMemSampleToHost(((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_SAMPLE_MEM_EVICTION);
+//                                         ranges_reuse_hist[previous_range][previous_address].dist_from_ref_to_eviction = actual_reuse_dist;
+//                                         ranges_reuse_hist[previous_range][previous_address].curr_predicted_tier = tier_to_evict;
+//
+//                                         #endif
+//
+//                                     // 072223
+//                                     #if 1
+//                                         //printf("all pages evicted %lu - total pages num %lu\n", all_pages_evicted(), total_pages_num);
+//                                         if (!reuse_place_decision &&
+//                                         //if (
+//                                             tier_to_evict == Tier3_SSD && all_pages_evicted() >= (total_pages_num>>1)
+//                                         && ranges_reuse_hist[previous_range][previous_address].evicted_before > 0
+//                                         ) {
+//                                             if (!idle_slots_too_few(0))
+//                                                 tier_to_evict = Tier2_CPU;
+//                                             //printf("Special Eviction for clean pages...\n");
+//                                         }
+//
+//                                     #endif
+//
+//                                     //#if GET_PAGE_FAULT_RATE
+//                                     #if 0
+//                                         int cec = atomicAdd((int*)&concurrent_evict_count, 1);
+//                                         __threadfence();
+//                                         //if ((clock() - evict_clock) >= 100000) {
+//                                         if (true) {
+//                                             evict_clock = clock();
+//                                             printf("ev %lu %d\n", evict_clock, cec);
+//                                         }
+//                                     #endif
+//                                         //printf("Evict [%u][%u] to %s\n", previous_range, previous_address, mem_tier_str[tier_to_evict]);
+//                                         //printf("tier to evict %u, idle_slots %ld\n", tier_to_evict, *num_idle_slots);
+//                                         if (tier_to_evict == Tier2_CPU && !idle_slots_too_few(0))
+//                                         //if (tier_to_evict == Tier2_CPU)
+//                                         {
+//                                             int ret = accessHostCache((void*)get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(ranges[previous_range][previous_address].bid), true);
+//                                             if (ret == HOST_CACHE_SUCCEEDED) {
+//                                                 //printf("Cache by host %lu dirty\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address));
+//                                             #if PRINT_TMM
+//                                                 printf("[Tier-1 GPU] [%u][%u] goes to Tier 2 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                             #endif
+//                                                 this->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
+//                                                 this->tier2_occupied_count->fetch_add(1, simt::memory_order_acquire);
+//                                             }
+//                                             else {
+//                                                 // TODO:
+//                                                 write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+//                                                 c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                                             }
+//                                         }
+//                                         else if (tier_to_evict == Tier1_GPU) {
+//                                         #if PRINT_TMM
+//                                             printf("[Tier-1 GPU] [%u][%u] goes to Tier 1 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                         #endif
+//                                             ranges_reuse_hist[previous_range][previous_address].evict_attempt_num++;
+//                                             goto unlock_page;
+//                                         }
+//                                         // Chia-Hao: bug@070423
+//                                         else {
+//                                         //else {
+//                                     #endif
+//                                             write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+//                                             c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                                     #if USE_HOST_CACHE && ENABLE_TMM
+//                                             #if PRINT_TMM
+//                                             printf("[Tier-1 GPU] [%u][%u] goes to Tier 3 (last %s) (evicted num %u)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier], ranges_reuse_hist[previous_range][previous_address].evicted_before);
+//                                             #endif
+//
+//                                             // Disable HC state: 100123
+//                                             this->ranges[previous_range][previous_address].state.fetch_and(~CACHED_BY_HOST, simt::memory_order_release);
+//                                         }
+//
+//                                         //#if GET_PAGE_FAULT_RATE
+//                                         #if 0
+//                                         atomicSub((int*)&concurrent_evict_count, 1);
+//                                         #endif
+//                                     #endif
+//                                     }
+//                                 }
+//                                 else {
+//                                     Controller* c = this->d_ctrls[ctrl];
+//                                     uint32_t queue = queue_ % (c->n_qps);
+//                                     //index = ranges_page_starts[previous_range] + previous_address;
+//                                     write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+//                                     c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                                 }
+//                                 evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//                             #if SPECIAL_EVICTION_FOR_CLEAN_PAGES
+//                                 dirty_pages_evicted->fetch_add(1, simt::memory_order_acquire);
+//                             #endif
+//
+//                             }
+//                             #if USE_HOST_CACHE && ENABLE_TMM
+//                             else {
+//                                 // clean page
+//                                 ///*
+//                                 bool reuse_place_decision = false;
+//                                 uint32_t tier_to_evict = which_tier_to_evict(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed), reuse_place_decision);
+//
+//                                 if (reuse_place_decision) {
+//                                     tier_bins_d->bins[tier_to_evict]++;
+//
+//                                     // Chia-Hao: 091323
+//                                     if (tier_to_evict == Tier3_SSD && page_stealing()) {
+//                                         tier_to_evict = Tier2_CPU;
+//                                     }
+//                                 }
+//                                 // get "real" reuse distance if the flag is enabled
+//                                 #if GET_GOLDEN_REUSE_DISTANCE
+//                                 uint64_t actual_reuse_dist = pushMemSampleToHost(((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_SAMPLE_MEM_EVICTION);
+//                                 ranges_reuse_hist[previous_range][previous_address].dist_from_ref_to_eviction = actual_reuse_dist;
+//                                 ranges_reuse_hist[previous_range][previous_address].curr_predicted_tier = tier_to_evict;
+//                                 #endif
+//
+//                                 #if SPECIAL_EVICTION_FOR_CLEAN_PAGES
+//                                 //printf("all pages evicted %lu - total pages num %lu\n", all_pages_evicted(), total_pages_num);
+//
+//                                 if (!reuse_place_decision &&
+//                                 //if (
+//                                     tier_to_evict == Tier3_SSD && all_pages_evicted() >= (total_pages_num>>1) && dirty_pages_evicted->load() < special_handling_threshold()
+//                                     && ranges_reuse_hist[previous_range][previous_address].evicted_before > 0
+//                                 ) {
+//                                     if (!idle_slots_too_few(0))
+//                                         tier_to_evict = Tier2_CPU;
+//                                     //printf("Special Eviction for clean pages...[%u][%u]\n", previous_range, previous_address);
+//                                 }
+//                                 // Chia-Hao: 080623
+//                                 else if (reuse_place_decision && tier_to_evict == Tier3_SSD && unique_page_evict_num->load() > 549824){
+//                                     //tier_to_evict = Tier2_CPU;
+//                                 }
+//
+//                                 clean_pages_evicted->fetch_add(1, simt::memory_order_acquire);
+//                                 #endif
+//
+//                                 //#if GET_PAGE_FAULT_RATE
+//                                 #if 0
+//                                 int cec = atomicAdd((int*)&concurrent_evict_count, 1);
+//                                 __threadfence();
+//                                 //if ((clock() - evict_clock) >= 100000) {
+//                                 if (true) {
+//                                     evict_clock = clock();
+//                                     printf("ev %lu %d\n", evict_clock, cec);
+//                                 }
+//                                 #endif
+//                                 //printf("Evict [%u][%u] to %s\n", previous_range, previous_address, mem_tier_str[tier_to_evict]);
+//                                 //printf("tier to evict %u, idle_slots %ld\n", tier_to_evict, *num_idle_slots);
+//                                 if (tier_to_evict == Tier2_CPU && !idle_slots_too_few(64)) {
+//                                 //if (previous_address < 18432) {
+//                                     if ((expected_state & CACHED_BY_HOST) == 0x0) {
+//                                         //printf("Cache by host (clean)%lu\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address));
+//                                         int ret = accessHostCache((void*)get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(ranges[previous_range][previous_address].bid), false);
+//                                         //printf("accessHostCache done for %lu (bid %lu)\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), ranges[previous_range][previous_address].bid);
+//                                         //int ret = HOST_CACHE_SUCCEEDED;
+//                                         if (ret == HOST_CACHE_SUCCEEDED) {
+//                                             this->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
+//                                             //printf("New state is %u\n", this->ranges[previous_range][previous_address].state.load());
+//                                             this->tier2_occupied_count->fetch_add(1, simt::memory_order_acquire);
+//                                         }
+//                                     }
+//                                 #if PRINT_TMM
+//                                     printf("[Tier-1 GPU] [%u][%u] (clean) goes to Tier 2 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                 #endif
+//
+//                                     //printf("tier 2 occupied count %lu (remain %lu)\n", this->tier2_occupied_count->load(simt::memory_order_acquire), second_tier_mem_pages-this->tier2_occupied_count->load(simt::memory_order_acquire));
+//                                 }
+//                                 else if (tier_to_evict == Tier1_GPU) {
+//                                 #if PRINT_TMM
+//                                     printf("[Tier-1 GPU] [%u][%u] (clean) goes to Tier 1 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                 #endif
+//                                     ranges_reuse_hist[previous_range][previous_address].evict_attempt_num++;
+//                                     goto unlock_page;
+//                                 }
+//                                 else {
+//                                 #if PRINT_TMM
+//                                     printf("[%u][%u] discarded (clean)\n", previous_range, previous_address);
+//                                 #endif
+//                                 }
+//                                 //*/
+//
+//                                 //#if GET_PAGE_FAULT_RATE
+//                                 #if 0
+//                                 atomicSub((int*)&concurrent_evict_count, 1);
+//                                 #endif
+//                             }
+//                             #endif
+//
+//                             // Update timestamp upon evictions
+//                             //#if USE_HOST_CACHE
+//                             #if USE_HOST_CACHE && ENABLE_TMM
+//
+//                             // Chia-Hao: 080623
+//                             if (ranges_reuse_hist[previous_range][previous_address].evicted_before == 0)  {
+//                                 unique_page_evict_num->fetch_add(1, simt::memory_order_relaxed);
+//                             }
+//
+//                             // Chia-Hao: 091323
+//                             //if (tier_bins_d->bins[3] >= 10000 && (this->virt_timestamp->load() % 100000) >= 0 && (this->virt_timestamp->load() % 100000) < 100) {
+//                             //    printf("Tier1 %lu, Tier2 %lu, Tier3 %lu\n", tier_bins_d->bins[1], tier_bins_d->bins[2], tier_bins_d->bins[3]);
+//                             //}
+//
+//                             update_timestamp_upon_eviction(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed));
+//                             #endif
+//                             //printf("[%lu][%lu] eviction timestamp: %lu\n", range_id, address, virt_timestamp->load(simt::memory_order_relaxed));
+//                             //printf("[key %lu] eviction timestamp: %lu\n", ((uint64_t)range_id<<32|(uint64_t)address), virt_timestamp->load(simt::memory_order_relaxed));
+//
+//                             fail = false;
+//                             //this->ranges[previous_range][previous_address].state.fetch_and(CNT_MASK, simt::memory_order_release);
+//                             this->ranges[previous_range][previous_address].state.fetch_and(CNT_MASK | CACHED_BY_HOST, simt::memory_order_release);
+//
+//                             #if USE_HOST_CACHE && PROFILE
+//                             loggingPageAction(previous_range, previous_address, PAGE_ACTION_EVICT);
+//                             #endif
+//
+//                             evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//
+//                             #if GET_PAGE_FAULT_RATE
+//                             //atomicSub((int*)&concurrent_evict_count, 1);
+//                             //__threadfence();
+//                             #endif
+//                         }
+//                         else {
+// unlock_page:
+//                             this->ranges[previous_range][previous_address].state.fetch_and(DISABLE_BUSY_MASK, simt::memory_order_release);
+//                         }
+//                     }
+//                 }
+//                 if (!fail) {
+//                     this->cache_pages[page].page_translation = global_address;
+//                 }
+//                 this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
+//             }
+//         }
+//         count++;
+//
+//         if (fail) {
+// #if defined(__CUDACC__) && (__CUDA_ARCH__ >= 700 || !defined(__CUDA_ARCH__))
+//              __nanosleep(ns);
+//              if (ns < 256) {
+//                  ns *= 2;
+//              }
+// #endif
+//             //   if ((j % 10000000) == 0) {
+//             //     printf("failed to find slot j: %llu\taddr: %llx\tpage: %llx\texpected_state: %llx\tnew_expected_date: %llx\n", (unsigned long long) j, (unsigned long long) address, (unsigned long long)page, (unsigned long long) expected_state, (unsigned long long) new_expected_state);
+// //            }
+// //	   expected_state = 0;
+// //	   new_expected_state = 0;
+//         }
+//
+//         //if (fail) printf("thread %lu - find slot for %lu (range %lu) (v %u, lock %u, new_expected_state %lx)\n", (uint64_t)(blockDim.x*blockIdx.x+threadIdx.x), address, range_id, v, lock, (new_expected_state & CNT_MASK));
+//     } while(fail);
+//
+// #if GET_PAGE_FAULT_RATE
+//     atomicSub((int*)&concurrent_evict_count, 1);
+//     __threadfence();
+// #endif
+//
+//     return page;
+//
+// }
+
+// __forceinline__
+// __device__
+// uint32_t page_cache_d_t::find_slot_prefetching(uint64_t address, uint64_t range_id, const uint32_t queue_, int32_t* bid) {
+//     bool fail = true;
+//     uint64_t count = 0;
+//     uint32_t global_address =(uint32_t) ((address << n_ranges_bits) | range_id); //not elegant. but hack
+//     uint32_t page = 0;
+//     unsigned int ns = 8;
+// 	//uint64_t j = 0;
+//     uint64_t expected_state = VALID;
+//     uint64_t new_expected_state = 0;
+//     //int64_t rrpv_increment_s = 0;
+//
+//     do {
+//         page = page_ticket->fetch_add(1, simt::memory_order_relaxed)  % (this->n_pages);
+//         bool lock = false;
+//         uint32_t v = this->cache_pages[page].page_take_lock.load(simt::memory_order_relaxed);
+//
+//         //not assigned to anyone yet
+//         if ( v == FREE ) {
+//             lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
+//             if ( lock ) {
+//                 this->cache_pages[page].page_translation = global_address;
+//                 this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
+//                 fail = false;
+//             }
+//             //printf("thread %lu - FREE - find slot for %lu (v %u, lock %u)\n", (uint64_t)(blockDim.x*blockIdx.x+threadIdx.x), address, v, lock);
+//         }
+//         //assigned to someone and was able to take lock
+//         else if ( v == UNLOCKED ) {
+//             lock = this->cache_pages[page].page_take_lock.compare_exchange_weak(v, LOCKED, simt::memory_order_acquire, simt::memory_order_relaxed);
+//             if (lock) {
+//                 uint32_t previous_global_address = this->cache_pages[page].page_translation;
+//                 uint32_t previous_range = previous_global_address & n_ranges_mask;
+//                 uint32_t previous_address = previous_global_address >> n_ranges_bits;
+//                 expected_state = this->ranges[previous_range][previous_address].state.load(simt::memory_order_relaxed);
+//
+//                 uint32_t cnt = expected_state & CNT_MASK;
+//                 uint32_t b = expected_state & BUSY;
+//
+//                 if ((cnt == 0) && (b == 0) ) {
+//                     new_expected_state = this->ranges[previous_range][previous_address].state.fetch_or(BUSY, simt::memory_order_acquire);
+//                     if (((new_expected_state & BUSY ) == 0) ) {
+//                         if (((new_expected_state & CNT_MASK ) == 0) ) {
+//                             if ((new_expected_state & DIRTY)) {
+//                                 uint64_t ctrl = get_backing_ctrl_(previous_address, n_ctrls, ranges_dists[previous_range]);
+//                                 uint64_t index = get_backing_page_(ranges_page_starts[previous_range], previous_address, n_ctrls, ranges_dists[previous_range]);
+//                                 //printf("Eviciting range_id: %llu\tpage_id: %llu\tctrl: %llx\tindex: %llu\n",
+//                                 //        (unsigned long long) previous_range, (unsigned long long)previous_address,
+//                                 //        (unsigned long long) ctrl, (unsigned long long) index);
+//                                 if (ctrl == ALL_CTRLS) {
+//                                     for (ctrl = 0; ctrl < n_ctrls; ctrl++) {
+//                                         Controller* c = this->d_ctrls[ctrl];
+//                                         uint32_t queue = queue_ % (c->n_qps);
+//                                         //evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//
+//                                     #if USE_HOST_CACHE && ENABLE_TMM
+//                                         bool reuse_place_decision = false;
+//                                         uint32_t tier_to_evict = which_tier_to_evict(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed), reuse_place_decision, true);
+//
+//                                         if (reuse_place_decision) {
+//                                             //printf("[%u][%u] decision: %u\n", previous_range, previous_address, tier_to_evict);
+//                                             tier_bins_d->bins[tier_to_evict]++;
+//
+//                                             // Chia-Hao: 091323
+//                                             if (tier_to_evict == Tier3_SSD && page_stealing()) {
+//                                                 tier_to_evict = Tier2_CPU;
+//                                             }
+//                                         }
+//
+//                                     // 072223
+//                                     #if 1
+//                                         //printf("all pages evicted %lu - total pages num %lu\n", all_pages_evicted(), total_pages_num);
+//                                         if (!reuse_place_decision &&
+//                                         //if (
+//                                             tier_to_evict == Tier3_SSD && all_pages_evicted() >= (total_pages_num>>1)
+//                                         && ranges_reuse_hist[previous_range][previous_address].evicted_before > 0
+//                                         ) {
+//                                             if (!idle_slots_too_few(0))
+//                                                 tier_to_evict = Tier2_CPU;
+//                                             //printf("Special Eviction for clean pages...\n");
+//                                         }
+//
+//                                     #endif
+//
+//                                         //printf("Evict [%u][%u] to %s\n", previous_range, previous_address, mem_tier_str[tier_to_evict]);
+//                                         //printf("tier to evict %u, idle_slots %ld\n", tier_to_evict, *num_idle_slots);
+//                                         if (tier_to_evict == Tier2_CPU && !idle_slots_too_few(0))
+//                                         //if (tier_to_evict == Tier2_CPU)
+//                                         {
+//                                             int ret = accessHostCache((void*)get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(ranges[previous_range][previous_address].bid), true);
+//                                             if (ret == HOST_CACHE_SUCCEEDED) {
+//                                                 //printf("Cache by host %lu dirty\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address));
+//                                             #if PRINT_TMM
+//                                                 printf("[Tier-1 GPU] [%u][%u] goes to Tier 2 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                             #endif
+//                                                 this->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
+//                                                 this->tier2_occupied_count->fetch_add(1, simt::memory_order_acquire);
+//                                             }
+//                                             else {
+//                                                 // TODO:
+//                                                 write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+//                                                 c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                                             }
+//                                         }
+//                                         else if (tier_to_evict == Tier1_GPU) {
+//                                         #if PRINT_TMM
+//                                             printf("[Tier-1 GPU] [%u][%u] goes to Tier 1 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                         #endif
+//                                             ranges_reuse_hist[previous_range][previous_address].evict_attempt_num++;
+//                                             goto unlock_page;
+//                                         }
+//                                         // Chia-Hao: bug@070423
+//                                         else {
+//                                         //else {
+//                                     #endif
+//                                             write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+//                                             c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                                     #if USE_HOST_CACHE && ENABLE_TMM
+//                                             #if PRINT_TMM
+//                                             printf("[Tier-1 GPU] [%u][%u] goes to Tier 3 (last %s) (evicted num %u)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier], ranges_reuse_hist[previous_range][previous_address].evicted_before);
+//                                             #endif
+//
+//                                             // Disable HC state: 100123
+//                                             this->ranges[previous_range][previous_address].state.fetch_and(~CACHED_BY_HOST, simt::memory_order_release);
+//                                         }
+//
+//                                     #endif
+//                                     }
+//                                 }
+//                                 else {
+//                                     Controller* c = this->d_ctrls[ctrl];
+//                                     uint32_t queue = queue_ % (c->n_qps);
+//                                     //index = ranges_page_starts[previous_range] + previous_address;
+//                                     write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+//                                     c->write_io_counter.fetch_add(1, simt::memory_order_relaxed);
+//                                 }
+//                                 evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//                             #if SPECIAL_EVICTION_FOR_CLEAN_PAGES
+//                                 dirty_pages_evicted->fetch_add(1, simt::memory_order_acquire);
+//                             #endif
+//
+//                             }
+//                             #if USE_HOST_CACHE && ENABLE_TMM
+//                             else {
+//                                 // clean page
+//                                 ///*
+//                                 bool reuse_place_decision = false;
+//                                 uint32_t tier_to_evict = which_tier_to_evict(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed), reuse_place_decision);
+//
+//                                 if (reuse_place_decision) {
+//                                     tier_bins_d->bins[tier_to_evict]++;
+//
+//                                     // Chia-Hao: 091323
+//                                     if (tier_to_evict == Tier3_SSD && page_stealing()) {
+//                                         tier_to_evict = Tier2_CPU;
+//                                     }
+//                                 }
+//
+//                                 #if SPECIAL_EVICTION_FOR_CLEAN_PAGES
+//                                 if (!reuse_place_decision &&
+//                                 //if (
+//                                     tier_to_evict == Tier3_SSD && all_pages_evicted() >= (total_pages_num>>1) && dirty_pages_evicted->load() < special_handling_threshold()
+//                                     && ranges_reuse_hist[previous_range][previous_address].evicted_before > 0
+//                                 ) {
+//                                     if (!idle_slots_too_few(0))
+//                                         tier_to_evict = Tier2_CPU;
+//                                     //printf("Special Eviction for clean pages...[%u][%u]\n", previous_range, previous_address);
+//                                 }
+//                                 // Chia-Hao: 080623
+//                                 else if (reuse_place_decision && tier_to_evict == Tier3_SSD && unique_page_evict_num->load() > 549824){
+//                                     //tier_to_evict = Tier2_CPU;
+//                                 }
+//
+//                                 clean_pages_evicted->fetch_add(1, simt::memory_order_acquire);
+//                                 #endif
+//
+//                                 //printf("tier to evict %u, idle_slots %ld\n", tier_to_evict, *num_idle_slots);
+//                                 if (tier_to_evict == Tier2_CPU && !idle_slots_too_few(64)) {
+//                                 //if (previous_address < 18432) {
+//                                     if ((expected_state & CACHED_BY_HOST) == 0x0) {
+//                                         //printf("Cache by host (clean)%lu\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address));
+//                                         int ret = accessHostCache((void*)get_cache_page_addr(page), ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), GPU_RW_EVICT_TO_HOST, &(ranges[previous_range][previous_address].bid), false);
+//                                         //printf("accessHostCache done for %lu (bid %lu)\n", ((((uint64_t)previous_range)<<32)|(uint64_t)previous_address), ranges[previous_range][previous_address].bid);
+//                                         //int ret = HOST_CACHE_SUCCEEDED;
+//                                         if (ret == HOST_CACHE_SUCCEEDED) {
+//                                             this->ranges[previous_range][previous_address].state.fetch_or(CACHED_BY_HOST, simt::memory_order_acquire);
+//                                             //printf("New state is %u\n", this->ranges[previous_range][previous_address].state.load());
+//                                             this->tier2_occupied_count->fetch_add(1, simt::memory_order_acquire);
+//                                         }
+//                                     }
+//                                 #if PRINT_TMM
+//                                     printf("[Tier-1 GPU] [%u][%u] (clean) goes to Tier 2 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                 #endif
+//
+//                                     //printf("tier 2 occupied count %lu (remain %lu)\n", this->tier2_occupied_count->load(simt::memory_order_acquire), second_tier_mem_pages-this->tier2_occupied_count->load(simt::memory_order_acquire));
+//                                 }
+//                                 else if (tier_to_evict == Tier1_GPU) {
+//                                 #if PRINT_TMM
+//                                     printf("[Tier-1 GPU] [%u][%u] (clean) goes to Tier 1 (last %s)\n", previous_range, previous_address, mem_tier_str[ranges_reuse_hist[previous_range][previous_address].last_predicted_tier]);
+//                                 #endif
+//                                     ranges_reuse_hist[previous_range][previous_address].evict_attempt_num++;
+//                                     goto unlock_page;
+//                                 }
+//                                 else {
+//                                 #if PRINT_TMM
+//                                     printf("[%u][%u] discarded (clean)\n", previous_range, previous_address);
+//                                 #endif
+//                                 }
+//                                 //*/
+//
+//                             }
+//                             #endif
+//
+//                             // Update timestamp upon evictions
+//                             //#if USE_HOST_CACHE
+//                             #if USE_HOST_CACHE && ENABLE_TMM
+//
+//                             // Chia-Hao: 080623
+//                             if (ranges_reuse_hist[previous_range][previous_address].evicted_before == 0)  {
+//                                 unique_page_evict_num->fetch_add(1, simt::memory_order_relaxed);
+//                             }
+//
+//                             // Chia-Hao: 091323
+//                             //if (tier_bins_d->bins[3] >= 10000 && (this->virt_timestamp->load() % 100000) >= 0 && (this->virt_timestamp->load() % 100000) < 100) {
+//                             //    printf("Tier1 %lu, Tier2 %lu, Tier3 %lu\n", tier_bins_d->bins[1], tier_bins_d->bins[2], tier_bins_d->bins[3]);
+//                             //}
+//
+//                             update_timestamp_upon_eviction(&(ranges_reuse_hist[previous_range][previous_address]), this->virt_timestamp->load(simt::memory_order_relaxed));
+//                             #endif
+//                             //printf("[%lu][%lu] eviction timestamp: %lu\n", range_id, address, virt_timestamp->load(simt::memory_order_relaxed));
+//                             //printf("[key %lu] eviction timestamp: %lu\n", ((uint64_t)range_id<<32|(uint64_t)address), virt_timestamp->load(simt::memory_order_relaxed));
+//
+//                             fail = false;
+//                             //this->ranges[previous_range][previous_address].state.fetch_and(CNT_MASK, simt::memory_order_release);
+//                             this->ranges[previous_range][previous_address].state.fetch_and(CNT_MASK | CACHED_BY_HOST, simt::memory_order_release);
+//
+//
+//                             evict_cnt->fetch_add(1, simt::memory_order_relaxed);
+//
+//                         }
+//                         else {
+// unlock_page:
+//                             this->ranges[previous_range][previous_address].state.fetch_and(DISABLE_BUSY_MASK, simt::memory_order_release);
+//                         }
+//                     }
+//                 }
+//                 if (!fail) {
+//                     this->cache_pages[page].page_translation = global_address;
+//                 }
+//                 this->cache_pages[page].page_take_lock.store(UNLOCKED, simt::memory_order_release);
+//             }
+//         }
+//         count++;
+//
+//         if (fail) {
+// #if defined(__CUDACC__) && (__CUDA_ARCH__ >= 700 || !defined(__CUDA_ARCH__))
+//              __nanosleep(ns);
+//              if (ns < 256) {
+//                  ns *= 2;
+//              }
+// #endif
+//             //   if ((j % 10000000) == 0) {
+//             //     printf("failed to find slot j: %llu\taddr: %llx\tpage: %llx\texpected_state: %llx\tnew_expected_date: %llx\n", (unsigned long long) j, (unsigned long long) address, (unsigned long long)page, (unsigned long long) expected_state, (unsigned long long) new_expected_state);
+// //            }
+// //	   expected_state = 0;
+// //	   new_expected_state = 0;
+//         }
+//
+//         //if (fail) printf("thread %lu - find slot for %lu (range %lu) (v %u, lock %u, new_expected_state %lx)\n", (uint64_t)(blockDim.x*blockIdx.x+threadIdx.x), address, range_id, v, lock, (new_expected_state & CNT_MASK));
+//     } while(fail);
+//
+//     return page;
+// }
+
+
+
+__forceinline__ __device__ void poll_async(QueuePair* qp, uint16_t cid, uint16_t sq_pos) {
     uint32_t cq_pos = cq_poll(&qp->cq, cid);
     //sq_dequeue(&qp->sq, sq_pos);
 
