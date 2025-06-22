@@ -1,3 +1,6 @@
-# GMT for test
+# GMT with 2-tier storage(HBM/DRAM)
 
-### My GPU management project based on GMT.
+## Overview
+
+This is a GMT that we have modified to get rid of the original BaM-GMT's reliance on the underlying NVMe SSD. 
+Furthermore, we have fixed many bugs in the original GMT.

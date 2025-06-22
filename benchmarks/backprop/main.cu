@@ -311,7 +311,6 @@ bpnn_layerforward_CUDA(TYPE *input_cuda,
 //     __shared__ TYPE weight_matrix[HEIGHT][WIDTH];
 //
 //
-//     printf("checkpoint 1\n");
 //
 //
 //     if ( tx == 0 ) {
@@ -319,14 +318,12 @@ bpnn_layerforward_CUDA(TYPE *input_cuda,
 //         input_node[ty] = input_cuda->seq_read(index_in) ;
 //     }
 //
-//     printf("checkpoint 2\n");
 //
 //     __syncthreads();
 //
 //     //weight_matrix[ty][tx] = input_hidden_cuda[index];
 //     weight_matrix[ty][tx] = input_hidden_cuda->seq_read(index);
 //
-//     printf("checkpoint 3\n");
 //
 //     __syncthreads();
 //
@@ -370,6 +367,7 @@ bpnn_layerforward_CUDA(TYPE *input_cuda,
 //
 // }
 
+
 __global__ void
 bpnn_layerforward_CUDA(array_d_t<TYPE> *input_cuda,
                        array_d_t<TYPE> *output_hidden_cuda,
@@ -403,7 +401,7 @@ bpnn_layerforward_CUDA(array_d_t<TYPE> *input_cuda,
     // if (blockIdx.x == 0 && blockIdx.y == 0 && tx == 0 && ty == 0)
     //     printf("checkpoint 1\n");
 
-    printf("checkpoint 1: tx = %ld, ty = %ld\n", (int64_t)threadIdx.x, (int64_t)threadIdx.y);
+    // printf("checkpoint 1: tx = %ld, ty = %ld\n", (int64_t)threadIdx.x, (int64_t)threadIdx.y);
 
     // ✅ 读取 input_node（每个线程块的输入向量片段）
     if (tx == 0) {
@@ -415,7 +413,7 @@ bpnn_layerforward_CUDA(array_d_t<TYPE> *input_cuda,
     }
 
 
-    printf("checkpoint 2: tx = %ld, ty = %ld\n", (int64_t)threadIdx.x, (int64_t)threadIdx.y);
+    // printf("checkpoint 2: tx = %ld, ty = %ld\n", (int64_t)threadIdx.x, (int64_t)threadIdx.y);
 
     __syncthreads();
 
@@ -426,7 +424,7 @@ bpnn_layerforward_CUDA(array_d_t<TYPE> *input_cuda,
     }
 
 
-    printf("checkpoint 3: tx = %ld, ty = %ld\n", (int64_t)threadIdx.x, (int64_t)threadIdx.y);
+    // printf("checkpoint 3: tx = %ld, ty = %ld\n", (int64_t)threadIdx.x, (int64_t)threadIdx.y);
 
 
     weight_matrix[ty][tx] = input_hidden_cuda->seq_read(weight_index);
@@ -446,7 +444,7 @@ bpnn_layerforward_CUDA(array_d_t<TYPE> *input_cuda,
         __syncthreads();
     }
 
-    printf("checkpoint 4\n");
+    // printf("checkpoint 4\n");
 
 
 
@@ -460,8 +458,85 @@ bpnn_layerforward_CUDA(array_d_t<TYPE> *input_cuda,
         hidden_partial_sum->seq_write(hps_index, weight_matrix[0][tx]);
     }
 
-    printf("checkpoint 5\n");
+    // printf("checkpoint 5\n");
 }
+
+__global__ void
+bpnn_layerforward_CUDA(array_d_t<TYPE> *input_cuda,
+                       array_d_t<TYPE> *output_hidden_cuda,
+                       array_d_t<TYPE> *input_hidden_cuda,
+                       array_d_t<TYPE> *hidden_partial_sum,
+                       int64_t in,
+                       int64_t hid,
+                       int64_t input_tile_base) // ✅ 新增参数：起始 tile
+{
+    // ✅ 当前 block 的 tile 索引（考虑 base 偏移）
+    int64_t block_input_tile  = blockIdx.x + input_tile_base;
+    int64_t block_hidden_tile = blockIdx.y;
+
+    int64_t tx = threadIdx.x;  // 对应隐藏层（列）
+    int64_t ty = threadIdx.y;  // 对应输入层（行）
+
+    // 全局输入/隐藏索引
+    int64_t input_idx  = ty + block_input_tile * HEIGHT;
+    int64_t hidden_idx = tx + block_hidden_tile * WIDTH;
+
+    // ✅ 边界检查（避免非法访问）
+    if (input_idx >= in || hidden_idx >= hid)
+        return;
+
+    // 输入数据起始偏移：输入节点从 1 开始（跳过偏置 0）
+    int64_t input_offset = input_idx + 1;
+    int64_t weight_index = (input_offset) * (hid + 1) + (hidden_idx + 1);
+
+    __shared__ TYPE input_node[HEIGHT];
+    __shared__ TYPE weight_matrix[HEIGHT][WIDTH];
+
+    // ✅ 读取 input_node（每个线程块的输入向量片段）
+    if (tx == 0) {
+        if (input_offset >= input_cuda->n_elems) {
+            printf("ERROR: input_offset %ld >= input_cuda->n_elems %lu\n", input_offset, input_cuda->n_elems);
+            return;
+        }
+        input_node[ty] = input_cuda->seq_read(input_offset);
+    }
+
+    __syncthreads();
+
+    // ✅ 读取权重
+    if (weight_index >= input_hidden_cuda->n_elems) {
+        printf("ERROR: weight_index %ld >= input_hidden_cuda->n_elems %lu\n", weight_index, input_hidden_cuda->n_elems);
+        return;
+    }
+
+    weight_matrix[ty][tx] = input_hidden_cuda->seq_read(weight_index);
+
+    __syncthreads();
+
+    // ✅ 乘法（输入 × 权重）
+    weight_matrix[ty][tx] *= input_node[ty];
+
+    __syncthreads();
+
+    // ✅ 纵向规约（按输入维度 HEIGHT 累加）
+    for (int stride = HEIGHT / 2; stride > 0; stride >>= 1) {
+        if (ty < stride) {
+            weight_matrix[ty][tx] += weight_matrix[ty + stride][tx];
+        }
+        __syncthreads();
+    }
+
+    // ✅ 写回乘积结果
+    if (ty == 0) {
+        uint64_t hps_index = (block_input_tile * hid) + hidden_idx;
+        if (hps_index >= hidden_partial_sum->n_elems) {
+            printf("ERROR: hps_index %lu >= hidden_partial_sum->n_elems %lu\n", hps_index, hidden_partial_sum->n_elems);
+            return;
+        }
+        hidden_partial_sum->seq_write(hps_index, weight_matrix[0][tx]);
+    }
+}
+
 
 
 
@@ -1478,6 +1553,98 @@ main( int argc, char** argv)
     setup(argc, argv);
 }
 
+extern "C"
+void bpnn_inference_cuda(BPNN *net)
+{
+    int in  = net->input_n;
+    int hid = net->hidden_n;
+    int out = net->output_n;
+
+    int num_input_tiles  = (in  + HEIGHT - 1) / HEIGHT;
+    int num_hidden_tiles = (hid + WIDTH  - 1) / WIDTH;
+
+    dim3 grid(num_input_tiles, num_hidden_tiles);
+    // dim3 grid(2, 2);
+    dim3 threads(WIDTH, HEIGHT);
+    // dim3 threads(1, 1);
+
+    // Step 1: Forward propagate from input to hidden layer
+    bpnn_layerforward_CUDA<<< grid, threads, 0, stream_mngr->kernel_stream >>>(
+        net->h_input_units_array[0]->d_array_ptr,
+        net->h_output_hidden_units_array->d_array_ptr,
+        net->h_input_weights_array->d_array_ptr,
+        net->h_hidden_partial_sum_array->d_array_ptr,
+        in, hid
+    );
+    cudaStreamSynchronize(stream_mngr->kernel_stream);
+
+    // int max_tiles_per_launch = 512;
+    //
+    // for (int input_tile_base = 0; input_tile_base < num_input_tiles; input_tile_base += max_tiles_per_launch) {
+    //     int tiles_this_launch = min(max_tiles_per_launch, num_input_tiles - input_tile_base);
+    //     dim3 grid(tiles_this_launch, num_hidden_tiles);
+    //
+    //     bpnn_layerforward_CUDA<<<grid, threads>>>(
+    //         net->h_input_units_array[0]->d_array_ptr,
+    //         net->h_output_hidden_units_array->d_array_ptr,
+    //         net->h_input_weights_array->d_array_ptr,
+    //         net->h_hidden_partial_sum_array->d_array_ptr,
+    //         in,
+    //         hid,
+    //         input_tile_base  // ✅ 传入偏移量
+    //     );
+    //
+    //     cudaDeviceSynchronize();  // 也可以替换为流控制
+    // }
+
+    // Step 2: Reduce partial sums and apply activation (sigmoid)
+    int bsize = 512;
+    int num_blocks = num_input_tiles;
+    int threads_in_block = (num_blocks > bsize) ? bsize : num_blocks;
+    int num_in_col = num_blocks;
+    int cnt = 0;
+
+    while (num_in_col > 1) {
+        int gpu_blocks = hid * num_in_col / threads_in_block;
+        if (cnt == 0) {
+            reduce_sum<<<gpu_blocks, threads_in_block, 0, stream_mngr->kernel_stream>>>(
+                hid, num_in_col,
+                net->h_hidden_partial_sum_array->d_array_ptr,
+                net->h_buffer_array[1]->d_array_ptr
+            );
+        } else {
+            reduce_sum<<<gpu_blocks, threads_in_block, 0, stream_mngr->kernel_stream>>>(
+                hid, num_in_col,
+                net->h_buffer_array[0]->d_array_ptr,
+                net->h_buffer_array[1]->d_array_ptr
+            );
+        }
+        std::swap(net->h_buffer_array[0], net->h_buffer_array[1]);
+        num_in_col /= threads_in_block;
+        cnt++;
+        cudaStreamSynchronize(stream_mngr->kernel_stream);
+    }
+
+    activate_kernel<<<1, hid, 0, stream_mngr->kernel_stream>>>(
+        net->h_output_hidden_units_array->d_array_ptr,
+        net->h_buffer_array[0]->d_array_ptr,
+        net->h_input_weights_array->d_array_ptr, // bias
+        hid
+    );
+    cudaStreamSynchronize(stream_mngr->kernel_stream);
+
+    // Step 3: Forward propagate from hidden to output layer
+    bpnn_layerforward_kernel<<<1, out, 0, stream_mngr->kernel_stream>>>(
+        net->h_output_hidden_units_array->d_array_ptr,
+        net->h_output_units_array->d_array_ptr,
+        net->h_hidden_weights_array->d_array_ptr,
+        hid, out
+    );
+    cudaStreamSynchronize(stream_mngr->kernel_stream);
+
+    // Note: Result now available in net->h_output_units_array->d_array_ptr
+}
+
 
     extern "C"
 void bpnn_train_cuda(BPNN *net, TYPE *eo, TYPE *eh)
@@ -1512,8 +1679,8 @@ void bpnn_train_cuda(BPNN *net, TYPE *eo, TYPE *eh)
     int num_input_tiles  = (in  + HEIGHT - 1) / HEIGHT;
     int num_hidden_tiles = (hid + WIDTH  - 1) / WIDTH;
 
-    // dim3 grid(num_input_tiles, num_hidden_tiles);
-    dim3 grid(1, 1);
+    dim3 grid(num_input_tiles, num_hidden_tiles);
+    // dim3 grid(1, 1);
     dim3 threads(WIDTH, HEIGHT);
     
     void* hidden_units_d, *input_weights_one_dim_d, *output_units_d, *hidden_weights_one_dim_d;
@@ -1549,6 +1716,7 @@ void bpnn_train_cuda(BPNN *net, TYPE *eo, TYPE *eh)
 for (int iter = 0; iter < settings.iter; iter++) 
 //for (int i = 0; i < settings.iter; i++) 
 {
+    printf("iter %d\n", iter);
     auto t1 = high_resolution_clock::now();
     
     // Chia-Hao: 1119
@@ -1783,7 +1951,6 @@ for (int iter = 0; iter < settings.iter; iter++)
     auto t2 = high_resolution_clock::now();
     duration<double> time_span = duration_cast<duration<double>>(t2 - t1);
     std::cout << "One iteration took " << time_span.count() << " seconds." << std::endl;   
-    printf("iter %d\n", iter);
 
 }
 #if USE_HOST_CACHE
@@ -1812,6 +1979,12 @@ for (int iter = 0; iter < settings.iter; iter++)
 
 }
 
+double get_time_in_ms() {
+    struct timeval time;
+    gettimeofday(&time, NULL);
+    return (double)(time.tv_sec * 1000.0 + time.tv_usec / 1000.0);
+}
+
 void
 backprop_face()
 {
@@ -1829,32 +2002,44 @@ backprop_face()
 
     uint64_t acc_pages = 0;
 
-    for (int i = 0; i < NUM_INPUTS; i++)
-        hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_input_units_pages/NUM_INPUTS;
-    
-    //hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_input_weights_pages;
-    hc->registerRangesLBA(274877906944/512); acc_pages += net->n_input_weights_pages;
-    //hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_input_prev_weights_pages;
-    hc->registerRangesLBA(549755813888/512); acc_pages += net->n_input_prev_weights_pages;
-    hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_output_hidden_pages;
-    hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_hidden_partial_sum_pages;
-    hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_buffer_pages;
-    hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_buffer_pages;
-    hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_output_units_pages;
-    hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_hidden_weights_pages;
-    hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_output_delta_pages;
-    hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_target_pages;
-    hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_hidden_delta_pages;
-    hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_hidden_prev_weights_pages;
+    // for (int i = 0; i < NUM_INPUTS; i++)
+    //     hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_input_units_pages/NUM_INPUTS;
+    //
+    // //hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_input_weights_pages;
+    // hc->registerRangesLBA(274877906944/512); acc_pages += net->n_input_weights_pages;
+    // //hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_input_prev_weights_pages;
+    // hc->registerRangesLBA(549755813888/512); acc_pages += net->n_input_prev_weights_pages;
+    // hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_output_hidden_pages;
+    // hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_hidden_partial_sum_pages;
+    // hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_buffer_pages;
+    // hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_buffer_pages;
+    // hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_output_units_pages;
+    // hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_hidden_weights_pages;
+    // hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_output_delta_pages;
+    // hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_target_pages;
+    // hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_hidden_delta_pages;
+    // hc->registerRangesLBA(acc_pages*settings.pageSize/512); acc_pages += net->n_hidden_prev_weights_pages;
 #endif
 
     printf("Starting training kernel\n");
-        bpnn_train_cuda(net, &out_err, &hid_err);
+        // bpnn_train_cuda(net, &out_err, &hid_err);
+
+    int num_samples = 4;
+    double start_infer = get_time_in_ms();
+    for (int i = 0; i < num_samples; i++) {
+        bpnn_inference_cuda(net);
+    }
+    double end_infer = get_time_in_ms();
+    printf("Inference done\n");
+    printf("Total inference time: %.3f ms\n", end_infer - start_infer);
+    printf("Average time per inference: %.3f ms\n", (end_infer - start_infer) / num_samples);
+
+
         //bpnn_free(net);
 
         //ctrls[0]->print_reset_stats();
         delete net;
-    printf("Training done\n");
+
 #if USE_HOST_CACHE
     delete hc; // 原本是注释的
 #endif

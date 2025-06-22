@@ -27,6 +27,16 @@
 #include <unistd.h>
 #include <curand_kernel.h>
 
+#define CUDA_CHECK(stmt)                                                   \
+do {                                                                     \
+cudaError_t _err = (stmt);                                             \
+if (_err != cudaSuccess) {                                             \
+fprintf(stderr, "CUDA error %s at %s:%d — %s\n",                     \
+#stmt, __FILE__, __LINE__, cudaGetErrorString(_err));        \
+abort();                                                             \
+}                                                                      \
+} while (0)
+
 /* Utility */
 #define DIV_ROUND_UP(n,d) (((n) + (d) - 1) / (d))
 #define UNUSED(x) (void)(x)
@@ -42,6 +52,31 @@
         __nanosleep(ns);\
         if (ns < 256) ns *= 2;\
     }\
+
+#define WAIT_COND_WITH_TIMEOUT(cond, value, ns, timeout_cycles) { \
+uint64_t start = clock64(); \
+while ((cond) != (value)) { \
+if (clock64() - start > timeout_cycles) { \
+printf("GPU timeout waiting for CPU! aborting...\n"); \
+return -1;  /* 或 assert, 或 continue */ \
+} \
+} \
+}
+
+
+#define WAIT_COND_WARP_LEADER(cond, value, ns)         \
+{                                                      \
+uint32_t mask = __activemask();                    \
+int leader = __ffs(mask) - 1;                      \
+uint32_t lane = threadIdx.x & 31;                  \
+if (lane == leader) {                              \
+while ((cond) != (value)) {                    \
+__nanosleep(ns);                           \
+ns = min(ns * 2, 512);                     \
+}                                              \
+}                                                  \
+__syncwarp(mask);                                  \
+}
 
 #define TRY_LOCK(lock) if (atomicExch((int*)&lock, 1) == 0)
 #define MUTEX_LOCK(lock) while (atomicExch((int*)(&lock), 1))
@@ -158,7 +193,8 @@ do {\
 #warning "Graph Workloads...!"
 #define HOST_MEM_SIZE ((size_t)1024UL*(size_t)1024*(size_t)1024*(size_t)16)
 #else
-#define HOST_MEM_SIZE ((size_t)1024UL*(size_t)1024*(size_t)1024*(size_t)1)
+// #define HOST_MEM_SIZE ((size_t)1024UL*(size_t)1024*(size_t)1024*(size_t)1)
+#define HOST_MEM_SIZE ((size_t)1024UL * 1024 * 1024 * 20)
 #endif
 #define HOST_MEM_NUM_PAGES (HOST_MEM_SIZE / PAGE_SIZE)
 
@@ -576,7 +612,7 @@ public:
         this->is_dirty = _state.is_dirty;
     }
     ~HostCacheState() {
-        std::cerr << "HostCacheState: Freeing " << this << std::endl;
+        // std::cerr << "HostCacheState: Freeing " << this << std::endl;
     }
 };
 
@@ -706,6 +742,7 @@ public:
 
     cudaStream_t cu_stream;
     // Controller* ctrl;
+
 
     #define NUM_NVME_QUEUES 1
     QueuePair* qp[NUM_NVME_QUEUES];
@@ -1514,7 +1551,13 @@ __device__ __forceinline__ int remote_read_write(uint32_t req_type, uint64_t key
 
     __threadfence_system();
 
+    // printf("Before WAIT_COND\n");
     WAIT_COND(gpu_rw_queue->entries[rw_queue_index].status, GPU_RW_READY, ns);
+    // WAIT_COND_WITH_TIMEOUT(gpu_rw_queue->entries[rw_queue_index].status, GPU_RW_READY, ns, 5);
+    // WAIT_COND_WARP_LEADER(gpu_rw_queue->entries[rw_queue_index].status, GPU_RW_READY, ns);
+
+    // printf("After WAIT_COND\n");
+
     //dev_data_ptr = (void*)((uint64_t)(gpu_rw_manager->getBufferBase()) + (uint64_t)buffer_offset);
     if (req_type == GPU_RW_EVICT_TO_HOST)
         *bid = gpu_rw_queue->entries[rw_queue_index].bid;
@@ -1706,6 +1749,7 @@ int writeDataToHost(int _fd, size_t _size, off_t _offset, void* gpu_addr)
 __forceinline__ __device__ 
 int accessHostCache(void* gpu_addr, uint64_t key, uint32_t req_type, int* bid, bool dirty, bool* is_cached_page_dirty = NULL)
 {
+    // printf("[HostCache::accessHostCache] type = %d\n", req_type);
     //int req_type                        = __req_type;
     int rw_queue_index                  = -1;
     //GpuRwQueueEntry* rw_queue_entry   = NULL;
@@ -2105,7 +2149,7 @@ uint32_t which_tier_to_evict(PageReuseTable* prt, uint64_t curr_virt_timestamp, 
     uint32_t reuse_history_index;
     uint32_t last_predicted_tier; // initial value is zero
     uint64_t last_eviction_virt_timestamp;*/
-    uint32_t ret = Tier3_SSD;
+    uint32_t ret = Tier2_CPU;
     uint32_t max_one = 0;
     uint32_t tiers_count[32];
 
@@ -2152,7 +2196,7 @@ uint32_t which_tier_to_evict(PageReuseTable* prt, uint64_t curr_virt_timestamp, 
         #if GET_GOLDEN_REUSE_DISTANCE
         prt->tier_prediction_reason = LAST_ITERATION;
         #endif
-        return Tier3_SSD;
+        return Tier2_CPU;
     }
 
     // CHIA-HAO: try?
@@ -2939,10 +2983,12 @@ HostCache::HostCache(uint64_t _gpu_mem_size = 0) : gpu_mem_size(_gpu_mem_size)
         exit(1);
     }
     madvise(host_mem, PAGE_SIZE, MADV_HUGEPAGE);
-    printf("host mem base addr %lx\n", host_mem);
+    // printf("host mem base addr %lx\n", host_mem);
     //CUDA_SAFE_CALL(cudaHostRegister(host_mem, HOST_MEM_SIZE, cudaHostRegisterPortable));
     CUDA_SAFE_CALL(cudaHostRegister(host_mem, HOST_MEM_SIZE, cudaHostRegisterDefault));
 
+    printf("host mem base addr %lx\n", (unsigned long)host_mem);
+    printf("host mem end addr  %lx\n", (unsigned long)host_mem + HOST_MEM_SIZE - 1);
 
 #else
     ///*
@@ -3087,6 +3133,7 @@ HostCache::HostCache(uint64_t _gpu_mem_size = 0) : gpu_mem_size(_gpu_mem_size)
     }
 
     //
+
     stream_mngr = new StreamManager();
     appName = "pagerank128M";
     fetch_from_host_count = 0;
@@ -3119,6 +3166,7 @@ HostCache::HostCache(uint64_t _gpu_mem_size = 0) : gpu_mem_size(_gpu_mem_size)
     CUDA_SAFE_CALL(cudaMemcpyAsync(host_mem, gpu_buff, PAGE_SIZE, cudaMemcpyDeviceToHost, stream_mngr->data_stream_from_device));
     #endif
     cudaFree(gpu_buff);
+    cudaStreamSynchronize(stream_mngr->data_stream_from_device);
     fprintf(stderr, "cudaMemcpyAsync test for host mem is good.\n");
     // Write data test
     /*
@@ -3294,16 +3342,127 @@ void HostCache::handleRequest(int queue_index)
                 cudaMemcpyAsync((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, _bid), (const void*)gpu_addr, PAGE_SIZE, cudaMemcpyDeviceToHost, stream_mngr->data_stream_from_device[queue_index % NUM_DATA_STREAMS]);
                 cudaStreamSynchronize(stream_mngr->data_stream_from_device[queue_index % NUM_DATA_STREAMS]);
                 #else
-                //fprintf(stderr, "evict to host: start transfer from device %p to host %p for key %lu done (dirty? %u) (bid %lu)\n", (void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, _bid), (const void*)gpu_addr, key, is_dirty, _bid);
-                //unsigned char* test_p = (unsigned char*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, _bid);
-                //fprintf(stderr, "test_p %p (host_mem %p)\n", test_p, host_mem);
-                //test_p[0] = 'c';
-                
-                //fprintf(stderr, "from dev %p begin (bid %lu)\n", gpu_addr, _bid);
+                // fprintf(stderr, "evict to host: start transfer from device %p to host %p for key %lu done (dirty? %u) (bid %lu)\n", (void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, _bid), (const void*)gpu_addr, key, is_dirty, _bid);
+                // unsigned char* test_p = (unsigned char*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, _bid);
+                // fprintf(stderr, "test_p %p (host_mem %p)\n", test_p, host_mem);
+                // test_p[0] = 'c';
+
+
+                // printf("gpu_addr = %p\n", gpu_addr);
+                //
+                // cudaPointerAttributes attr1;
+                // cudaError_t err1 = cudaPointerGetAttributes(&attr1, (const void*) gpu_addr);
+                // if (err1 != cudaSuccess) {
+                //     printf("Invalid gpu_addr: %s\n", cudaGetErrorString(err));
+                // } else {
+                //     printf("gpu_addr is valid, memoryType = %d\n", attr1.type);
+                // }
+                //
+                // cudaPointerAttributes attr2;
+                // cudaError_t err2 = cudaPointerGetAttributes(&attr2, host_mem);
+                // if (err2 == cudaSuccess) {
+                //     if (attr2.type != cudaMemoryTypeHost) {
+                //         printf("host_mem is not pinned memory!\n");
+                //     }
+                //     else {
+                //         printf("host_mem is valid, memoryType = %d\n", attr2.type);
+                //     }
+                // } else {
+                //     printf("cudaPointerGetAttributes failed for host_mem: %s\n", cudaGetErrorString(err));
+                // }
+                //
+                // // cudaError_t e = cudaDeviceSynchronize();
+                // // if (e != cudaSuccess) {
+                // //     printf("CUDA error: %s\n", cudaGetErrorString(e));
+                // // }
+
+
+                // printf("Start Memcpy\n");
+
+                // cudaSetDevice(0);
+                // cudaStream_t s;
+                // CUDA_CHECK( cudaStreamCreateWithFlags(&s, cudaStreamNonBlocking) );
+                //
+                // void *gpu_buff=nullptr, *host_buff=nullptr;
+                // CUDA_CHECK( cudaMalloc(&gpu_buff, PAGE_SIZE) );
+                // CUDA_CHECK( cudaMallocHost(&host_buff, PAGE_SIZE) );
+                //
+                // CUDA_CHECK( cudaMemsetAsync(gpu_buff, 0xAB, PAGE_SIZE, stream_mngr->data_stream_from_device) );
+                // /* 立刻探针一次，把异步 launch 时就可能出现的错误“捞”出来 */
+                // CUDA_CHECK( cudaGetLastError() );
+                //
+                // CUDA_CHECK( cudaMemcpyAsync(host_buff, gpu_buff, PAGE_SIZE,
+                //                             cudaMemcpyDeviceToHost, stream_mngr->data_stream_from_device) );
+                // CUDA_CHECK( cudaGetLastError() );
+                //
+                // fprintf(stderr, "before sync\n"); fflush(stderr);
+                // CUDA_CHECK( cudaStreamSynchronize(s) );     // 真正等待
+                // fprintf(stderr, "after sync\n");
+                // fprintf(stderr, "1\n");
+
+                // cudaFreeHost(host_buff);
+                // cudaFree(gpu_buff);
+                // cudaStreamDestroy(s);
+                // CUDA_CHECK( cudaMemcpyAsync((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, _bid), gpu_buff, PAGE_SIZE,
+                //                             cudaMemcpyDeviceToHost, stream_mngr->data_stream_from_device) );
+                // CUDA_CHECK( cudaGetLastError() );
+                // fprintf(stderr, "before sync 1\n"); fflush(stderr);
+                // CUDA_CHECK( cudaStreamSynchronize(s) );     // 真正等待
+                // fprintf(stderr, "after sync 1\n");
+
+
+                // void* gpu_buff = NULL;
+                // void* new_host_mem = NULL;
+                //
+                // cudaMalloc(&gpu_buff, PAGE_SIZE);
+                // cudaMallocHost(&new_host_mem, PAGE_SIZE);
+                // // new_host_mem = malloc(PAGE_SIZE);
+                //
+                // cudaMemset(gpu_buff, 0xAB, PAGE_SIZE); // 初始化数据
+                //
+                // printf("Alloc success\n");
+                //
+                // // cudaError_t err = cudaMemcpyAsync(new_host_mem, gpu_buff, PAGE_SIZE, cudaMemcpyDeviceToHost, stream_mngr->data_stream_from_device);
+                // // if (err != cudaSuccess) {
+                // //     printf("cudaMemcpyAsync failed: %s\n", cudaGetErrorString(err));
+                // // }
+                //
+                // cudaError_t err = cudaMemcpy(new_host_mem, gpu_buff, PAGE_SIZE, cudaMemcpyDeviceToHost);
+                // if (err != cudaSuccess) {
+                //     printf("cudaMemcpy failed: %s\n", cudaGetErrorString(err));
+                // } else {
+                //     printf("cudaMemcpy test passed!\n");
+                // }
+                //
+                //
+                // printf("cudaMemcpyAsync test for host mem is really good.\n\n");
+                //
+                // cudaFree(gpu_buff);
+
+
+
+                cudaSetDevice(0);
+
+
+                // void* nvm_ptr = NVM_PTR_OFFSET(host_mem, PAGE_SIZE, _bid);
+                // printf("NVM_PTR_OFFSET(host_mem, PAGE_SIZE, %d) = 0x%lx\n", _bid, (unsigned long)nvm_ptr);
+                // printf("gpu_addr (device ptr) = 0x%lx\n", (unsigned long)gpu_addr);
+
+                cudaSetDevice(0);
                 cudaMemcpyAsync((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, _bid), (const void*)gpu_addr, PAGE_SIZE, cudaMemcpyDeviceToHost, stream_mngr->data_stream_from_device);
+                // cudaError_t err1 = cudaMemcpy((void*)NVM_PTR_OFFSET(host_mem, PAGE_SIZE, _bid), (const void*)gpu_addr, PAGE_SIZE, cudaMemcpyDeviceToHost);
+                // if (err != cudaSuccess) {
+                //     fprintf(stderr, "cudaMemcpy failed at %s:%d: %s\n", __FILE__, __LINE__, cudaGetErrorString(err));
+                //     exit(EXIT_FAILURE);
+                // }
+                // printf("MemcpyAsync issued\n");
                 cudaStreamSynchronize(stream_mngr->data_stream_from_device);
-                //fprintf(stderr, "from dev %p end (bid %lu)\n", gpu_addr, _bid);
-                
+                // printf("MemcpyAsync synchronized\n");
+                // fprintf(stderr, "from dev %p end (bid %lu)\n", gpu_addr, _bid);
+
+                // printf("[HostCache::handleRequest] 3 type = %d (%s)\n", type, enum_rw_req_h[type]);
+
+
                 #endif
                 //fprintf(stderr, "evict to host: start transfer for key %lu done (dirty? %u)\n", key, is_dirty);
                 /* Update cache state */
@@ -3696,7 +3855,7 @@ void HostCache::launchThreadLoop()
 {
     int tid = 0;
     //int req_count = 0;
-    for (tid = 0; tid < NUM_CPU_CORES; tid++) {
+    for (tid = 0; tid < 1; tid++) {
         std::thread handler_thread(&HostCache::threadLoop, std::ref(*this), tid);
         //std::thread handler_thread(&HostCache::threadLoop2, std::ref(*this), tid);
         handler_thread.detach();
@@ -3876,6 +4035,7 @@ static void* start_host_runtime_thread(void* /*arg*/)
     return NULL;
 }
 
+inline
 HostCache* createHostCache(size_t _pc_mem_size)
 {
     int ret;
